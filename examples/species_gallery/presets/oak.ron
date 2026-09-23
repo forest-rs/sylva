@@ -41,21 +41,21 @@ Species(
             ),
             // Secondary branches along the limbs.
             (
-                count: PerMetre(3.5),
+                count: PerMetre(4.5),
                 span: (0.15, 1.0),
                 arrangement: Spiral(divergence: 2.39996),
                 roll_jitter: 0.4,
                 position_jitter: 0.8,
-                angle: [(0.0, 0.95), (1.0, 0.6)],
+                angle: [(0.0, 0.95), (1.0, 0.75)],
                 angle_jitter: 0.2,
-                length: [(0.0, 0.5), (0.6, 0.4), (1.0, 0.25)],
+                length: [(0.0, 0.5), (0.6, 0.45), (1.0, 0.35)],
                 length_jitter: 0.25,
                 shape: (
-                    curve: 0.15,
+                    curve: 0.25,
                     gnarl: 0.3,
                     gnarl_wavelength: 0.8,
-                    up: 0.03,
-                    sag: 0.1,
+                    up: 0.12,
+                    sag: 0.05,
                     kink: 0.3,
                     kink_interval: 0.45,
                     kink_jitter: 0.6,
@@ -72,15 +72,16 @@ Species(
             ),
             // Twigs carrying the leaf sites.
             (
-                count: PerMetre(15.0),
-                span: (0.2, 1.0),
+                count: PerMetre(30.0),
+                span: (0.45, 1.0),
                 arrangement: Spiral(divergence: 2.39996),
                 roll_jitter: 0.5,
                 position_jitter: 0.8,
-                angle: [(0.0, 0.85), (1.0, 0.6)],
-                angle_jitter: 0.2,
-                // Short branchlets: a few seasons of growth, not whips.
-                length: [(0.0, 0.2), (1.0, 0.12)],
+                angle: [(0.0, 1.25), (1.0, 0.8)],
+                angle_jitter: 0.3,
+                // Short branchlets, longest mid-clump, so each branch ends in
+                // a rounded tuft of foliage.
+                length: [(0.0, 0.14), (0.45, 0.3), (1.0, 0.1)],
                 length_jitter: 0.3,
                 // Sympodial twigs: a zig-zag at every season's growth.
                 shape: (

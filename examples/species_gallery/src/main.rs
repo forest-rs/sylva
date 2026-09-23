@@ -13,6 +13,9 @@
 //! done
 //! ```
 //!
+//! `--seeds 1,3` grows only those seeds, and `--tree-only` skips the LOD
+//! chain, card bakes and glTF export, for quick crown iteration.
+//!
 //! `bark.obj` carries positions, bark UVs and the authored normals;
 //! `render_bark.py` shows it with a UV grid so seams and texel density are
 //! visible. `leaves.obj` expands every leaf instance at full detail,
@@ -50,14 +53,23 @@ const OAK: &str = include_str!("../presets/oak.ron");
 const SEEDS: [u64; 3] = [1, 2, 3];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let out_dir = PathBuf::from(
-        std::env::args()
-            .nth(1)
-            .unwrap_or_else(|| "target/species-gallery".to_owned()),
-    );
+    let mut out_dir = PathBuf::from("target/species-gallery");
+    let mut seeds = SEEDS.to_vec();
+    let mut tree_only = false;
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--seeds" => {
+                let list = args.next().ok_or("--seeds needs a value, e.g. 1,3")?;
+                seeds = list.split(',').map(str::parse).collect::<Result<_, _>>()?;
+            }
+            "--tree-only" => tree_only = true,
+            _ => out_dir = PathBuf::from(arg),
+        }
+    }
     let species: Species = ron::from_str(OAK)?;
     let textures = write_textures(&out_dir.join("textures"), &species)?;
-    for seed in SEEDS {
+    for seed in seeds {
         let started = Instant::now();
         let grown = species.grow(seed)?;
         let elapsed = started.elapsed();
@@ -82,6 +94,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let place_us = placed.elapsed().as_micros();
                 std::fs::write(dir.join("leaves.obj"), leaves_obj(&foliage)?)?;
                 write_mask(&dir.join("leaf-mask.png"), &foliage)?;
+                if tree_only {
+                    println!(
+                        "{}-seed{seed}: {:?} branches by level, {} leaves",
+                        species.name, grown.report.branches_by_level, foliage.report.leaves
+                    );
+                    continue;
+                }
                 let lods = write_lods(&dir, seed, &grown.skeleton, &foliage, &tri, &textures)?;
                 let card = card::bake_twig_card(
                     &dir.join("twig-card"),
