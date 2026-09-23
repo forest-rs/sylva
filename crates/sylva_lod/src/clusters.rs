@@ -6,8 +6,8 @@
 //!
 //! A level with [`ClusterCards`] groups every leaf under its ancestor branch
 //! of [`ClusterCards::root_order`] into one cluster. Each cluster becomes a
-//! [`ClusterCard`] fitted around its twigs and leaves, facing out of the
-//! crown. A few exemplar clusters, chosen by keyed quantiles of leaf count,
+//! [`ClusterCard`] fitted around its twigs and leaves, facing between the
+//! crown's outward direction and the leaves' mean upper surface. A few exemplar clusters, chosen by keyed quantiles of leaf count,
 //! are baked into an atlas ([`crate::bake_clusters`]); every card samples the
 //! exemplar whose aspect is closest to its own. At a distance that reads as
 //! the crown's foliage masses for a few triangles per cluster, instead of
@@ -304,9 +304,19 @@ fn fit_card(
         .try_normalize()
         .or_else(|| (tip - base).try_normalize())
         .unwrap_or(Vec3::Z);
+    // Face halfway between the leaves' mean upper surface and the crown's
+    // outward direction: leaves mostly face the sky, so a card facing only
+    // outward would see many of them edge-on, while one facing only their
+    // normals would lie flat and vanish from the side.
     let outward = centroid - crown_centroid;
-    let toward = (outward - up * outward.dot(up))
+    let surface: Vec3 = leaves
+        .iter()
+        .map(|&l| foliage.instances[l as usize].rotation * Vec3::Z)
+        .sum();
+    let facing = outward.normalize_or_zero() + surface.normalize_or_zero();
+    let toward = (facing - up * facing.dot(up))
         .try_normalize()
+        .or_else(|| (outward - up * outward.dot(up)).try_normalize())
         .unwrap_or_else(|| up.any_orthonormal_vector());
     let right = up.cross(toward);
 

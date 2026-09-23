@@ -257,11 +257,23 @@ fn clusters_replace_every_leaf_of_their_order() {
         assert!(card.right.dot(card.up).abs() < 1e-4);
         assert!(card.half.x > 0.0 && card.half.y > 0.0);
         assert!((card.variant as usize) < clusters.variants.len());
-        // The card faces out of the crown.
-        let out = card.center - foliage.report.crown_centroid;
-        assert!(card.right.cross(card.up).dot(out) >= 0.0);
+        // The card faces between the crown's outward direction and its
+        // leaves' mean upper surface.
+        let members = &clusters.members[clusters.cards.iter().position(|c| c == card).unwrap()];
+        let centroid = members
+            .iter()
+            .map(|&l| foliage.instances[l as usize].position)
+            .sum::<Vec3>()
+            / members.len() as f32;
+        let surface: Vec3 = members
+            .iter()
+            .map(|&l| foliage.instances[l as usize].rotation * Vec3::Z)
+            .sum();
+        let blend = (centroid - foliage.report.crown_centroid).normalize_or_zero()
+            + surface.normalize_or_zero();
+        assert!(card.right.cross(card.up).dot(blend) >= -1e-4);
         // Every member leaf lies inside the card's box.
-        for &l in &clusters.members[clusters.cards.iter().position(|c| c == card).unwrap()] {
+        for &l in members {
             let d = foliage.instances[l as usize].position - card.center;
             assert!(d.dot(card.right).abs() <= card.half.x + 1e-4);
             assert!(d.dot(card.up).abs() <= card.half.y + 1e-4);

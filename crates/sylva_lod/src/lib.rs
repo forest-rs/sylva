@@ -123,7 +123,7 @@ impl Default for LodPolicy {
                 LodLevel {
                     screen_size: 0.5,
                     crossfade: 0.1,
-                    rings: base.rings,
+                    rings: rings(base.rings.segments_per_metre, 3, base.rings.max_segments),
                     stations: base.stations,
                     min_branch_radius: 0.0,
                     leaf_fraction: 1.0,
@@ -133,9 +133,9 @@ impl Default for LodPolicy {
                 LodLevel {
                     screen_size: 0.25,
                     crossfade: 0.1,
-                    rings: rings(10.0, 4, 16),
+                    rings: rings(10.0, 3, 16),
                     stations: stations(0.3, 1.5),
-                    min_branch_radius: 0.006,
+                    min_branch_radius: 0.012,
                     leaf_fraction: 0.6,
                     leaf_detail: LeafDetail::Card,
                     clusters: None,
