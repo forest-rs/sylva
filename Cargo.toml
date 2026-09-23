@@ -84,6 +84,7 @@ clippy.allow_attributes = "warn"
 # Dapple is pinned to a reviewed `main` revision until it publishes releases.
 dapple_encode = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
 dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
+dapple_graph = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
 dapple_imaging = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
 dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
 # Exedra is pinned to a reviewed `main` revision until it publishes releases.

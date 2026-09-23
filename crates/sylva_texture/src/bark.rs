@@ -1,230 +1,112 @@
 // Copyright 2026 the Sylva Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Tileable bark material sets.
+//! Tileable bark material sets from dapple recipes.
 
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use dapple_encode::{Image, MaterialMaps};
-use dapple_field::program::{Fingerprint, Op, ProgramBuilder};
-use dapple_field::{Basis, CellOutput, Domain, FractalParams};
-use dapple_raster::{
-    AmbientOcclusion, Edge, HeightToNormal, Raster, RasterOp, Realization, realize,
-};
+use dapple_field::program::Fingerprint;
+use dapple_graph::{RasterData, Recipe, RecipeError};
 
 use crate::TextureError;
 
-/// A ridged, fissured bark such as oak's, as one repeating tile.
-///
-/// The tile covers `tile_size` metres around and along a branch, matching
-/// `sylva_mesh::BarkMapping::tile_size`, so texels land at their true world
-/// size. Its height is a dapple field program: stretched cells whose borders
-/// are the fissures (`ridges` across the tile, `plates` along it), their
-/// outlines wobbled by noise, flattened into plates, with fine grain on top.
-/// Normals, ambient occlusion, colour and roughness all derive from that one
-/// height, so they agree.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct BarkRecipe {
-    /// World size of the tile, in metres.
-    pub tile_size: f32,
-    /// Texels along each side of the tile.
-    pub size: u32,
-    /// Bark ridges across the tile (around the branch).
-    pub ridges: u32,
-    /// Plates each ridge breaks into along the tile.
-    pub plates: u32,
-    /// Fissure width, as the fraction of a cell's border distance kept
-    /// sunken, in `(0, 0.5)`.
-    pub fissure: f32,
-    /// Fissure depth, in metres.
-    pub relief: f32,
-    /// Fine grain on the plates, as a fraction of the plate height.
-    pub grain: f32,
-    /// Linear colour deep in the fissures.
-    pub dark: [f32; 3],
-    /// Linear colour on the plate tops.
-    pub light: [f32; 3],
-    /// Roughness on the plate tops and in the fissures.
-    pub roughness: [f32; 2],
-    /// Seed for every noise in the recipe.
-    pub seed: u64,
-}
+/// Texels per tile of the material graph a bark recipe runs in. Tile size
+/// only partitions the work; the maps do not depend on it.
+const GRAPH_TILE: u32 = 64;
 
-impl Default for BarkRecipe {
-    /// Mature pedunculate oak: grey-brown ridges broken into oblong plates
-    /// between deep, dark fissures.
-    fn default() -> Self {
-        Self {
-            tile_size: 0.5,
-            size: 512,
-            ridges: 7,
-            plates: 2,
-            fissure: 0.32,
-            relief: 0.03,
-            grain: 0.18,
-            dark: [0.028, 0.022, 0.018],
-            light: [0.21, 0.19, 0.16],
-            roughness: [0.75, 0.95],
-            seed: 1,
-        }
-    }
-}
-
-/// A bark material set: its height and the maps ready to pack.
+/// A bark material set: the maps ready to pack.
 #[derive(Clone, Debug)]
 pub struct BarkSet {
-    /// Height in `[0, 1]`, one tile, wrapping; 1 is the plate tops.
-    pub height: Raster,
-    /// Base colour, normals, roughness and occlusion.
+    /// The maps the recipe's outputs fill: base colour, normals, roughness,
+    /// occlusion.
     pub maps: MaterialMaps,
-    /// Content fingerprint of the height program.
+    /// The recipe's content fingerprint.
     pub fingerprint: Fingerprint,
 }
 
-impl BarkRecipe {
-    fn validate(&self) -> Result<(), TextureError> {
-        let bad = |ok: bool, name| {
-            if ok {
-                Ok(())
-            } else {
-                Err(TextureError::Params { name })
-            }
-        };
-        bad(
-            self.tile_size.is_finite() && self.tile_size > 0.0,
-            "tile_size",
-        )?;
-        bad((8..=8192).contains(&self.size), "size")?;
-        bad((1..=256).contains(&self.ridges), "ridges")?;
-        bad((1..=256).contains(&self.plates), "plates")?;
-        bad(self.fissure > 0.0 && self.fissure < 0.5, "fissure")?;
-        bad(self.relief.is_finite() && self.relief >= 0.0, "relief")?;
-        bad((0.0..1.0).contains(&self.grain), "grain")?;
-        bad(
-            self.roughness.iter().all(|r| (0.0..=1.0).contains(r)),
-            "roughness",
-        )
-    }
-}
-
-/// Generates a tileable bark set.
+/// Runs a dapple bark recipe and collects its outputs as material maps.
+///
+/// Bark is a [`dapple_graph::Recipe`], data rather than code, so sylva and
+/// dapple share one oak bark instead of two that drift apart. A recipe's
+/// outputs name `dapple_encode` material roles (`base_color`, `normal`,
+/// `specular_roughness`, `occlusion`, `base_metalness`, `opacity`,
+/// `subsurface_weight`, `subsurface_color`) and the realize or raster nodes
+/// that fill them, one node per channel group.
+///
+/// The recipe's repeating tile is one tile of `sylva_mesh`'s bark UVs, so its
+/// world size must equal `sylva_mesh::BarkMapping::tile_size`; a recipe
+/// states that size and scales its normal and occlusion relief to it.
 ///
 /// # Errors
 ///
-/// [`TextureError::Params`] for an invalid recipe, or a dapple error.
-pub fn bark(recipe: &BarkRecipe) -> Result<BarkSet, TextureError> {
-    recipe.validate()?;
-    let torus = Domain::periodic(1, 1).ok_or(TextureError::Params { name: "domain" })?;
-    let seed = recipe.seed;
-    #[expect(clippy::cast_precision_loss, reason = "cell counts are small")]
-    let cells = [recipe.ridges as f32, recipe.plates as f32];
-    let mut b = ProgramBuilder::new();
-    // Border distance of stretched cells: fissures run along the branch.
-    let border = b.add(Op::Cellular {
-        domain: torus,
-        frequency: cells,
-        jitter: 1.0,
-        seed,
-        output: CellOutput::Border,
-    })?;
-    // A repeating domain needs whole cycles per tile.
-    #[expect(clippy::cast_precision_loss, reason = "cell counts are small")]
-    let wobble_frequency = [
-        recipe.ridges.div_ceil(2).max(1) as f32,
-        (recipe.plates * 3) as f32,
-    ];
-    let wobble = |b: &mut ProgramBuilder, salt: u64| {
-        b.add(Op::Fractal {
-            basis: Basis::Gradient,
-            domain: torus,
-            frequency: wobble_frequency,
-            seed: seed.wrapping_add(salt),
-            params: FractalParams::default(),
-        })
-    };
-    let dx = wobble(&mut b, 1)?;
-    let dy = wobble(&mut b, 2)?;
-    let wavy = b.add(Op::Warp {
-        input: border,
-        dx,
-        dy,
-        amount: 0.35 / cells[0],
-    })?;
-    // Border distance is in cell units: sunken within `fissure` of a
-    // border, flat plate tops beyond.
-    let plates = b.add(Op::Clamp {
-        input: wavy,
-        min: 0.0,
-        max: recipe.fissure,
-    })?;
-    let plates = b.add(Op::Remap {
-        input: plates,
-        from: [0.0, recipe.fissure],
-        to: [0.0, 1.0 - recipe.grain],
-    })?;
-    let grain = b.add(Op::Fractal {
-        basis: Basis::Gradient,
-        domain: torus,
-        frequency: [cells[0] * 4.0, cells[1] * 4.0],
-        seed: seed.wrapping_add(3),
-        params: FractalParams {
-            octaves: 4,
-            ..FractalParams::default()
-        },
-    })?;
-    let grain = b.add(Op::Remap {
-        input: grain,
-        from: [-1.0, 1.0],
-        to: [0.0, recipe.grain],
-    })?;
-    let height = b.add(Op::Add {
-        a: plates,
-        b: grain,
-    })?;
-    let program = b.finish(height)?;
-    let fingerprint = program.fingerprint();
-    let height = realize(
-        &program,
-        Realization::period(torus, recipe.size, recipe.size)?,
-    )?;
-
-    // One domain unit is one tile; heights of 1 are `relief` metres deep.
-    let scale = recipe.relief / recipe.tile_size;
-    let normals = HeightToNormal { scale }.apply(&height)?;
-    let ao = AmbientOcclusion {
-        radius: 0.06 / cells[0],
-        directions: 12,
-        scale,
+/// [`TextureError::Recipe`] when the recipe cannot be fingerprinted, built
+/// or run; [`TextureError::Output`] when an output names an unknown role,
+/// its channels do not fit it, or no output fills `base_color`.
+pub fn bark(recipe: &Recipe) -> Result<BarkSet, TextureError> {
+    let failed = |error: RecipeError| TextureError::Recipe(error.to_string());
+    let fingerprint = recipe.fingerprint().map_err(failed)?;
+    let (mut graph, nodes) = recipe.build(GRAPH_TILE).map_err(failed)?;
+    graph.run().map_err(|e| failed(RecipeError::Material(e)))?;
+    let mut maps = MaterialMaps::default();
+    for output in &recipe.outputs {
+        let wrong = || TextureError::Output {
+            role: output.role.clone(),
+        };
+        let (slot, expected) = match output.role.as_str() {
+            "base_color" => (&mut maps.base_color, 3),
+            "normal" => (&mut maps.normal, 3),
+            "specular_roughness" => (&mut maps.specular_roughness, 1),
+            "occlusion" => (&mut maps.occlusion, 1),
+            "base_metalness" => (&mut maps.base_metalness, 1),
+            "opacity" => (&mut maps.opacity, 1),
+            "subsurface_weight" => (&mut maps.subsurface_weight, 1),
+            "subsurface_color" => (&mut maps.subsurface_color, 3),
+            _ => return Err(wrong()),
+        };
+        let sources: Vec<Image> = output
+            .channels
+            .iter()
+            .map(|label| {
+                let node = nodes.get(label).ok_or_else(wrong)?;
+                let value = graph.raster_value(*node).ok_or_else(wrong)?;
+                Ok(match &value.data {
+                    RasterData::Scalar(r) => Image::from(r),
+                    RasterData::Vector3(r) => Image::from(r),
+                })
+            })
+            .collect::<Result<_, TextureError>>()?;
+        let first = sources.first().ok_or_else(wrong)?;
+        let grid = |i: &Image| (i.width(), i.height(), i.edge());
+        let channels: usize = sources.iter().map(Image::channels).sum();
+        if channels != expected || sources.iter().any(|s| grid(s) != grid(first)) {
+            return Err(wrong());
+        }
+        // Interleave the sources' channels texel by texel.
+        let texels = first.width() as usize * first.height() as usize;
+        let mut values = Vec::with_capacity(texels * channels);
+        for i in 0..texels {
+            for source in &sources {
+                let c = source.channels();
+                values.extend_from_slice(&source.values()[i * c..(i + 1) * c]);
+            }
+        }
+        *slot = Some(
+            Image::new(
+                first.width(),
+                first.height(),
+                channels,
+                first.edge(),
+                values,
+            )
+            .map_err(TextureError::Encode)?,
+        );
     }
-    .apply(&height)?;
-    let (dark, light) = (recipe.dark, recipe.light);
-    let (smooth, rough) = (recipe.roughness[0], recipe.roughness[1]);
-    let values = height.values();
-    let base_color: Vec<f32> = values
-        .iter()
-        .flat_map(|&h| {
-            let t = h.clamp(0.0, 1.0);
-            [0, 1, 2].map(|c| dark[c] + (light[c] - dark[c]) * t)
-        })
-        .collect();
-    let roughness: Vec<f32> = values
-        .iter()
-        .map(|&h| rough + (smooth - rough) * h.clamp(0.0, 1.0))
-        .collect();
-    let image = |channels, values| {
-        Image::new(recipe.size, recipe.size, channels, Edge::Wrap, values)
-            .map_err(TextureError::Encode)
-    };
-    let maps = MaterialMaps {
-        base_color: Some(image(3, base_color)?),
-        normal: Some(Image::from(&normals)),
-        specular_roughness: Some(image(1, roughness)?),
-        occlusion: Some(Image::from(&ao)),
-        ..MaterialMaps::default()
-    };
-    Ok(BarkSet {
-        height,
-        maps,
-        fingerprint,
-    })
+    if maps.base_color.is_none() {
+        return Err(TextureError::Output {
+            role: String::from("base_color"),
+        });
+    }
+    Ok(BarkSet { maps, fingerprint })
 }

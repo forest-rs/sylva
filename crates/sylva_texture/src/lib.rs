@@ -6,8 +6,9 @@
 //! Species texture recipes turn a few botanical parameters into OpenPBR
 //! material maps through dapple's field programs and raster operations:
 //!
-//! - [`bark()`] makes a tileable bark set ([`BarkRecipe`]) whose tile matches
-//!   the world size of `sylva_mesh`'s bark UVs;
+//! - [`bark()`] runs a dapple bark [`Recipe`](dapple_graph::Recipe), the same
+//!   data dapple bakes, into a tileable set whose tile matches the world size
+//!   of `sylva_mesh`'s bark UVs;
 //! - [`leaf()`] makes a leaf set ([`LeafRecipe`]) in the UV frame of a
 //!   `sylva_foliage` leaf shape: opacity is the leaf's own coverage mask
 //!   ([`leaf_mask`], rasterized from its outline by `dapple_imaging`), and
@@ -22,9 +23,9 @@
 //! # Example
 //! ```rust
 //! use dapple_encode::{PackSettings, Profile, pack};
-//! use sylva_texture::{BarkRecipe, bark};
+//! use sylva_texture::{LeafRecipe, leaf};
 //!
-//! let set = bark(&BarkRecipe { size: 64, ..BarkRecipe::default() })?;
+//! let set = leaf(&LeafRecipe { size: 64, ..LeafRecipe::default() })?;
 //! let bundle = pack(&set.maps, Profile::Gltf, &PackSettings::default())?;
 //! assert!(bundle.texture("base_color").is_some());
 //! # Ok::<(), Box<dyn core::error::Error>>(())
@@ -38,7 +39,7 @@ mod bark;
 mod error;
 mod leaf;
 
-pub use bark::{BarkRecipe, BarkSet, bark};
+pub use bark::{BarkSet, bark};
 pub use error::TextureError;
 pub use leaf::{LeafRecipe, LeafSet, leaf, leaf_mask};
 

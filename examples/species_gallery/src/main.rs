@@ -54,12 +54,14 @@ use sylva_lod::{
     bake_clusters, bake_impostor, build_lods,
 };
 use sylva_mesh::{BRANCH_LAYER, MeshParams, mesh_skeleton};
-use sylva_texture::{BarkRecipe, LeafRecipe, bark, leaf};
+use sylva_texture::{LeafRecipe, bark, leaf};
 
 use skeleton_dump::{skeleton_json, skeleton_obj};
 use sylva_species::Species;
 
 const OAK: &str = include_str!("../presets/oak.ron");
+/// The oak's bark recipe: dapple's, scaled to a 1 m tile (see the file).
+const OAK_BARK: &str = include_str!("../presets/oak_bark.toml");
 const SEEDS: [u64; 3] = [1, 2, 3];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -510,7 +512,8 @@ fn write_textures(
     species: &Species,
 ) -> Result<card::Textures, Box<dyn std::error::Error>> {
     let started = Instant::now();
-    let bark_set = bark(&BarkRecipe::default())?;
+    let recipe: dapple_graph::Recipe = toml::from_str(OAK_BARK)?;
+    let bark_set = bark(&recipe)?;
     let mut textures = card::Textures {
         bark: bark_set
             .maps

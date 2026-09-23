@@ -28,6 +28,15 @@ pub enum TextureError {
     /// `dapple_imaging` could not rasterize a mask; the message is its
     /// error's.
     Mask(String),
+    /// A dapple recipe could not be fingerprinted, built or run; the message
+    /// is its error's.
+    Recipe(String),
+    /// A recipe output names an unknown material role, or its channels do
+    /// not fit the role.
+    Output {
+        /// The output's role.
+        role: String,
+    },
 }
 
 impl fmt::Display for TextureError {
@@ -38,6 +47,8 @@ impl fmt::Display for TextureError {
             Self::Raster(error) => write!(f, "raster: {error}"),
             Self::Encode(error) => write!(f, "image: {error}"),
             Self::Mask(error) => write!(f, "mask: {error}"),
+            Self::Recipe(error) => write!(f, "recipe: {error}"),
+            Self::Output { role } => write!(f, "recipe output {role:?} does not fit its role"),
         }
     }
 }

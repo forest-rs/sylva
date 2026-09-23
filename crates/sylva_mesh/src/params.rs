@@ -81,7 +81,7 @@ pub struct BarkMapping {
 impl Default for BarkMapping {
     fn default() -> Self {
         Self {
-            tile_size: 0.5,
+            tile_size: 1.0,
             seed: 0,
         }
     }

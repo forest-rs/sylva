@@ -1,59 +1,140 @@
 // Copyright 2026 the Sylva Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use alloc::vec;
+
 use dapple_encode::{PackSettings, Profile, pack};
+use dapple_field::program::Op;
+use dapple_field::{CellOutput, Domain};
+use dapple_graph::{RasterParams, Recipe, RecipeNode, RecipeOutput, Step};
 use dapple_raster::Edge;
+use dapple_raster::HeightToNormal;
 use sylva_foliage::LeafShape;
 
-use crate::{BarkRecipe, LeafRecipe, TextureError, bark, leaf, leaf_mask};
+use crate::{LeafRecipe, TextureError, bark, leaf, leaf_mask};
 
-fn small_bark() -> BarkRecipe {
-    BarkRecipe {
-        size: 64,
-        ..BarkRecipe::default()
+/// A small bark recipe: cellular fissures realized on a 32-texel tile, grey
+/// scale colour, and normals from the same height.
+fn small_bark(seed: u64) -> Recipe {
+    let torus = Domain::periodic(1, 1).expect("domain");
+    let node = |label: &str, step| RecipeNode {
+        label: label.into(),
+        step,
+    };
+    Recipe {
+        nodes: vec![
+            node(
+                "height",
+                Step::Field {
+                    op: Op::Cellular {
+                        domain: torus,
+                        frequency: [7.0, 2.0],
+                        jitter: 1.0,
+                        seed,
+                        output: CellOutput::Border,
+                    },
+                    inputs: vec![],
+                },
+            ),
+            node(
+                "height_map",
+                Step::Realize {
+                    input: "height".into(),
+                    width: 32,
+                    height: 32,
+                },
+            ),
+            node(
+                "normal_map",
+                Step::Raster {
+                    input: "height_map".into(),
+                    params: RasterParams::HeightToNormal(HeightToNormal { scale: 0.04 }),
+                },
+            ),
+        ],
+        outputs: vec![
+            RecipeOutput {
+                role: "base_color".into(),
+                channels: vec![
+                    "height_map".into(),
+                    "height_map".into(),
+                    "height_map".into(),
+                ],
+            },
+            RecipeOutput {
+                role: "normal".into(),
+                channels: vec!["normal_map".into()],
+            },
+        ],
+        ..Recipe::default()
     }
 }
 
 #[test]
-fn bark_is_deterministic_tileable_and_complete() {
-    let a = bark(&small_bark()).expect("bark");
-    let b = bark(&small_bark()).expect("again");
+fn bark_runs_a_dapple_recipe_into_wrapping_maps() {
+    let a = bark(&small_bark(1)).expect("bark");
+    let b = bark(&small_bark(1)).expect("again");
     assert_eq!(a.fingerprint, b.fingerprint);
-    assert_eq!(a.height.digest(), b.height.digest());
-    assert_eq!(a.height.edge(), Edge::Wrap, "one repeating tile");
-    let maps = &a.maps;
-    for image in [
-        &maps.base_color,
-        &maps.normal,
-        &maps.specular_roughness,
-        &maps.occlusion,
-    ] {
-        let image = image.as_ref().expect("map present");
-        assert_eq!(image.edge(), Edge::Wrap, "every map wraps");
+    let color = a.maps.base_color.as_ref().expect("colour");
+    let normal = a.maps.normal.as_ref().expect("normal");
+    assert_eq!(color.values(), b.maps.base_color.as_ref().unwrap().values());
+    assert_eq!((color.width(), color.channels()), (32, 3));
+    assert_eq!(normal.channels(), 3);
+    for image in [color, normal] {
+        assert_eq!(image.edge(), Edge::Wrap, "one repeating tile");
     }
-    // Fissures are darker and rougher than plate tops.
-    let heights = a.height.values();
-    let (lo, hi) = heights
-        .iter()
-        .enumerate()
-        .fold((0, 0), |(lo, hi), (i, &h)| {
-            (
-                if h < heights[lo] { i } else { lo },
-                if h > heights[hi] { i } else { hi },
-            )
-        });
-    let color = maps.base_color.as_ref().unwrap().values();
-    let rough = maps.specular_roughness.as_ref().unwrap().values();
-    assert!(color[lo * 3] < color[hi * 3], "fissures are darker");
-    assert!(rough[lo] > rough[hi], "fissures are rougher");
-    let other = bark(&BarkRecipe {
-        seed: 2,
-        ..small_bark()
-    })
-    .expect("seed 2");
-    assert_ne!(other.fingerprint, a.fingerprint, "the seed is content");
+    // Channels interleave per texel: all three came from one height.
+    assert!(
+        color
+            .values()
+            .chunks(3)
+            .all(|t| t[0] == t[1] && t[1] == t[2])
+    );
+    assert_ne!(
+        bark(&small_bark(2)).expect("seed 2").fingerprint,
+        a.fingerprint,
+        "the seed is content"
+    );
     let bundle = pack(&a.maps, Profile::Gltf, &PackSettings::default()).expect("pack");
     assert!(bundle.texture("normal").is_some());
+}
+
+#[test]
+fn bark_refuses_outputs_that_do_not_fit() {
+    let mut unknown = small_bark(1);
+    unknown.outputs[1].role = "sparkle".into();
+    assert_eq!(
+        bark(&unknown).err(),
+        Some(TextureError::Output {
+            role: "sparkle".into()
+        })
+    );
+    let mut short = small_bark(1);
+    short.outputs[0].channels.pop();
+    assert_eq!(
+        bark(&short).err(),
+        Some(TextureError::Output {
+            role: "base_color".into()
+        })
+    );
+    let mut colourless = small_bark(1);
+    colourless.outputs.remove(0);
+    assert_eq!(
+        bark(&colourless).err(),
+        Some(TextureError::Output {
+            role: "base_color".into()
+        })
+    );
+    let mut dangling = small_bark(1);
+    dangling.nodes[1] = RecipeNode {
+        label: "height_map".into(),
+        step: Step::Realize {
+            input: "missing".into(),
+            width: 32,
+            height: 32,
+        },
+    };
+    assert!(matches!(bark(&dangling), Err(TextureError::Recipe(_))));
 }
 
 #[test]
@@ -114,14 +195,6 @@ fn leaf_opacity_is_the_leaf_shapes_own_mask() {
 
 #[test]
 fn invalid_recipes_are_refused() {
-    assert_eq!(
-        bark(&BarkRecipe {
-            fissure: 0.6,
-            ..small_bark()
-        })
-        .err(),
-        Some(TextureError::Params { name: "fissure" })
-    );
     assert_eq!(
         leaf(&LeafRecipe {
             size: 4,
