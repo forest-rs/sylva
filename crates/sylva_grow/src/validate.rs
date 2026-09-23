@@ -34,6 +34,7 @@ fn shape(level: Option<usize>, shape: &Shape) -> Result<(), GrowError> {
         (shape.up, "shape.up"),
         (shape.sag, "shape.sag"),
         (shape.light, "shape.light"),
+        (shape.kink, "shape.kink"),
     ];
     for (value, name) in fields {
         if !finite(value) {
@@ -42,6 +43,12 @@ fn shape(level: Option<usize>, shape: &Shape) -> Result<(), GrowError> {
     }
     if shape.gnarl != 0.0 && !positive(shape.gnarl_wavelength) {
         return Err(invalid(level, "shape.gnarl_wavelength"));
+    }
+    if shape.kink != 0.0 && !positive(shape.kink_interval) {
+        return Err(invalid(level, "shape.kink_interval"));
+    }
+    if !(0.0..=1.0).contains(&shape.kink_jitter) {
+        return Err(invalid(level, "shape.kink_jitter"));
     }
     Ok(())
 }
@@ -102,6 +109,9 @@ pub(crate) fn check(h: &Hierarchy) -> Result<(), GrowError> {
         }
         if !fraction(level.length_jitter) {
             return Err(invalid(at, "length_jitter"));
+        }
+        if !(0.0..=1.0).contains(&level.balance) {
+            return Err(invalid(at, "balance"));
         }
         if level.length.points().iter().any(|p| p[1] < 0.0) {
             return Err(invalid(at, "length"));

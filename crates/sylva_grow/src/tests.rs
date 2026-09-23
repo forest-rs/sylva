@@ -250,3 +250,83 @@ fn invalid_parameters_are_reported_before_growth() {
         })
     );
 }
+
+#[test]
+fn kinks_zig_zag_at_every_internode() {
+    let hierarchy = Hierarchy {
+        trunk: Trunk {
+            length: 2.0,
+            shape: Shape {
+                kink: 0.3,
+                kink_interval: 0.25,
+                ..Shape::default()
+            },
+            ..Trunk::default()
+        },
+        levels: Vec::new(),
+        envelope: None,
+        radii: Radii::default(),
+        segment_length: 0.5,
+    };
+    let grown = grow(&hierarchy, 5).expect("grow");
+    let nodes = &grown.skeleton.branches()[0].nodes;
+    assert_eq!(nodes.len(), 9, "a node at every internode");
+    let dirs: Vec<Vec3> = nodes
+        .windows(2)
+        .map(|w| (w[1].position - w[0].position).normalize())
+        .collect();
+    // Each kink turns by the full angle, and consecutive turns bend to
+    // opposite sides of the same plane.
+    let turns: Vec<Vec3> = dirs.windows(2).map(|w| w[0].cross(w[1])).collect();
+    for (w, turn) in dirs.windows(2).zip(&turns) {
+        let angle = libm::acosf(w[0].dot(w[1]).clamp(-1.0, 1.0));
+        assert!((angle - 0.3).abs() < 1e-3, "kink angle {angle}");
+        assert!(turn.length() > 0.1);
+    }
+    for pair in turns.windows(2) {
+        assert!(
+            pair[0].normalize().dot(pair[1].normalize()) < -0.9,
+            "turns alternate sides"
+        );
+    }
+}
+
+#[test]
+fn kink_parameters_are_validated() {
+    let mut hierarchy = fixture();
+    hierarchy.trunk.shape.kink = 0.2;
+    assert!(matches!(
+        grow(&hierarchy, 1),
+        Err(GrowError::InvalidParameter { .. })
+    ));
+    hierarchy.trunk.shape.kink_interval = 0.3;
+    hierarchy.trunk.shape.kink_jitter = 1.5;
+    assert!(matches!(
+        grow(&hierarchy, 1),
+        Err(GrowError::InvalidParameter { .. })
+    ));
+}
+
+#[test]
+fn balance_evens_the_crown_without_changing_structure() {
+    let crown = |balance: f32| {
+        let mut hierarchy = fixture();
+        hierarchy.levels.truncate(1);
+        hierarchy.levels[0].length_jitter = 0.5;
+        hierarchy.levels[0].balance = balance;
+        let grown = grow(&hierarchy, 3).expect("grow");
+        let limbs: Vec<Branch> = grown.skeleton.branches()[1..].to_vec();
+        let net: Vec3 = limbs
+            .iter()
+            .map(|b| {
+                let d = b.nodes.last().unwrap().position - b.nodes[0].position;
+                Vec3::new(d.x, d.y, 0.0)
+            })
+            .sum();
+        (net.length(), limbs.iter().map(|b| b.id).collect::<Vec<_>>())
+    };
+    let (lopsided, ids) = crown(0.0);
+    let (balanced, balanced_ids) = crown(1.0);
+    assert_eq!(ids, balanced_ids, "balance changes lengths, not identities");
+    assert!(balanced < lopsided * 0.8, "{balanced} vs {lopsided}");
+}

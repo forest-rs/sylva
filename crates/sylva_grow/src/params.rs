@@ -83,6 +83,18 @@ pub struct Shape {
     /// Phototropism: turn toward the horizontal direction away from the trunk
     /// axis at this rate, spreading the crown outward.
     pub light: f32,
+    /// Abrupt turn at every internode, in radians. Many trees grow
+    /// sympodially: each season's shoot ends and a side bud takes over, so
+    /// twigs zig-zag and old limbs are crooked rather than smoothly curved.
+    /// Zero disables kinks.
+    pub kink: f32,
+    /// Internode length between kinks, in metres. The centerline gets a node
+    /// at every kink, so this also bounds the node spacing.
+    pub kink_interval: f32,
+    /// Irregularity of kinks in `[0, 1]`. At 0 kinks alternate sides in one
+    /// plane with a fixed angle (a clean zig-zag); larger values randomize
+    /// the angle and swing the side, which reads as crooked growth.
+    pub kink_jitter: f32,
 }
 
 /// One branching level: children grown along every branch of the level above.
@@ -112,6 +124,12 @@ pub struct Level {
     pub length: Curve,
     /// Keyed length variation as a fraction (`0.2` is ±20%).
     pub length_jitter: f32,
+    /// Crown balance among siblings, in `[0, 1]`. Jittered lengths and
+    /// azimuths can leave a crown lopsided; this shortens the children of
+    /// one parent that reach toward their combined horizontal lean and
+    /// lengthens those opposite, in proportion to the imbalance. It matters
+    /// most for scaffold limbs on the trunk. 0 leaves lengths unchanged.
+    pub balance: f32,
     /// Centerline shaping of these children.
     pub shape: Shape,
     /// Optional foliage sites along these children.
@@ -130,6 +148,7 @@ impl Default for Level {
             angle_jitter: 0.0,
             length: Curve::constant(0.5),
             length_jitter: 0.0,
+            balance: 0.0,
             shape: Shape::default(),
             sites: None,
         }

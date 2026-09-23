@@ -9,8 +9,9 @@
 //! the level above ([`Count`]), where along it ([`Level::span`]), how they
 //! turn around it ([`Arrangement`]), at what angle and length ([`Curve`]s over
 //! the parent position), and how their centerlines bend ([`Shape`]: planar
-//! curve, smooth keyed gnarl, gravitropism, sag, phototropism). An optional
-//! crown [`Envelope`] prunes branches that grow out of it.
+//! curve, smooth keyed gnarl, sympodial kinks, gravitropism, sag,
+//! phototropism). [`Level::balance`] evens out lopsided sibling crowns, and an
+//! optional crown [`Envelope`] prunes branches that grow out of it.
 //!
 //! [`grow()`] turns a hierarchy and a seed into a
 //! [`Skeleton`](sylva_skeleton::Skeleton) with pipe-model radii, frames and

@@ -101,7 +101,10 @@ pub fn grow(hierarchy: &Hierarchy, seed: u64) -> Result<Grown, GrowError> {
         let mut next = Vec::new();
         for parent_id in parents {
             let parent = skeleton.branch(parent_id).expect("parents were pushed");
-            let (children, skipped) = place_children(parent, level, lineage, seed);
+            let (mut children, skipped) = place_children(parent, level, lineage, seed);
+            if level.balance > 0.0 {
+                balance(&mut children, level.balance);
+            }
             report.skipped += skipped;
             let parent_order = parent.order;
             for child in children {
@@ -150,6 +153,30 @@ pub fn grow(hierarchy: &Hierarchy, seed: u64) -> Result<Grown, GrowError> {
     report.nodes = skeleton.branches().iter().map(|b| b.nodes.len()).sum();
     skeleton.validate()?;
     Ok(Grown { skeleton, report })
+}
+
+/// Rebalances sibling lengths against their combined horizontal lean.
+///
+/// Each child's horizontal reach is its direction's horizontal part times its
+/// length. With `f` the net reach over the total reach and `b` the net
+/// direction, a child whose reach points along `b` by `cos` is scaled by
+/// `1 - strength * f * cos`, so the heavy side shortens and the light side
+/// lengthens. IDs and every keyed decision are untouched.
+fn balance(children: &mut [Placement], strength: f32) {
+    let reach = |c: &Placement| Vec3::new(c.direction.x, c.direction.y, 0.0) * c.length;
+    let net: Vec3 = children.iter().map(reach).sum();
+    let total: f32 = children.iter().map(|c| reach(c).length()).sum();
+    let Some(towards) = net.try_normalize() else {
+        return;
+    };
+    if total <= 0.0 {
+        return;
+    }
+    let imbalance = net.length() / total;
+    for child in children {
+        let along = reach(child).try_normalize().map_or(0.0, |r| r.dot(towards));
+        child.length *= (1.0 - strength * imbalance * along).max(0.25);
+    }
 }
 
 /// A value in `[-1, 1)` for `purpose` under `key`.
@@ -280,11 +307,16 @@ fn centerline(
     key: Key,
     segment_length: f32,
 ) -> Vec<Node> {
+    let spacing = if shape.kink != 0.0 {
+        segment_length.min(shape.kink_interval)
+    } else {
+        segment_length
+    };
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "lengths over the validated segment length are small and positive"
+        reason = "lengths over the validated spacing are small and positive"
     )]
-    let segments = (libm::ceilf(length / segment_length) as usize).max(2);
+    let segments = (libm::ceilf(length / spacing) as usize).max(2);
     let step = length / segments as f32;
     let mut position = start;
     let mut heading = direction.normalize_or(Vec3::Z);
@@ -294,6 +326,8 @@ fn centerline(
         Frame::from_tangent_or_axis(heading, Vec3::Z).expect("heading is a finite unit vector");
     let wander = [key.with(tag("gnarl.u")), key.with(tag("gnarl.v"))];
     let wavelength = shape.gnarl_wavelength.max(1e-3);
+    let kink_key = key.with(tag("kink"));
+    let kink_azimuth = TAU * kink_key.unit_f32();
     let fallback_axis = {
         let azimuth = TAU * key.with(tag("curve.azimuth")).unit_f32();
         Vec3::new(libm::cosf(azimuth), libm::sinf(azimuth), 0.0)
@@ -327,6 +361,17 @@ fn centerline(
             let turn = shape.gnarl * step;
             heading = Quat::from_axis_angle(frame.normal, turn * u) * heading;
             heading = Quat::from_axis_angle(frame.binormal(), turn * v) * heading;
+        }
+        if shape.kink != 0.0 && segment > 0 {
+            // Sympodial growth: alternate sides in one plane, with keyed
+            // irregularity in angle and side.
+            let k = kink_key.with(segment as u64);
+            let angle = shape.kink * (1.0 + shape.kink_jitter * k.with(0).signed_unit_f32());
+            let side = if segment % 2 == 0 { 0.0 } else { PI };
+            let azimuth =
+                kink_azimuth + side + shape.kink_jitter * PI * k.with(1).signed_unit_f32();
+            let axis = frame.normal * libm::cosf(azimuth) + frame.binormal() * libm::sinf(azimuth);
+            heading = Quat::from_axis_angle(axis, angle) * heading;
         }
         if shape.up != 0.0 {
             heading = turn_toward(heading, Vec3::Z, shape.up * step);
