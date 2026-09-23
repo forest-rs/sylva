@@ -152,7 +152,7 @@ impl Default for LodPolicy {
                         root_order: 3,
                         variants: 8,
                         planes: 2,
-                        leaf_facing: 0.5,
+                        leaf_facing: 0.35,
                     }),
                 },
                 LodLevel {

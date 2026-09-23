@@ -34,10 +34,11 @@ pub struct ClusterCards {
     pub variants: u32,
     /// Card planes per cluster, crossed about its up axis: 1 to 3.
     pub planes: u32,
-    /// How far each card turns from the crown's outward direction toward
-    /// its leaves' mean upper surface, in `[0, 1]`. Small clusters read
-    /// best facing their leaves, since a blade seen edge-on bakes to a
-    /// sliver; large, volumetric clusters read best facing outward.
+    /// How far each card turns, in `[0, 1]`, from containing its twig axis
+    /// and facing the crown's outside across it (0) to facing its leaves'
+    /// mean upper surface (1). Small clusters read best facing their
+    /// leaves, since a blade seen edge-on bakes to a sliver; large clusters
+    /// that reach outward read best across their axis.
     pub leaf_facing: f32,
 }
 
@@ -318,11 +319,13 @@ fn fit_card(
         .map(|&l| foliage.instances[l as usize].position)
         .sum::<Vec3>()
         / leaves.len() as f32;
-    // Blend the crown's outward direction with the leaves' mean upper
-    // surface by `leaf_facing`: a blade seen edge-on bakes to a sliver, so a
-    // small cluster viewed along its twig shows mostly bark and reads pale
-    // beside the leaves it replaces. `up` is the twig direction projected
-    // into the card plane.
+    // At `leaf_facing = 0` the card contains the twig axis and faces the
+    // crown's outside across it, which suits large, volumetric clusters that
+    // reach outward. At 1 it faces the leaves' mean upper surface: a blade
+    // seen edge-on bakes to a sliver, so a small cluster viewed across its
+    // twig shows mostly bark and reads pale beside the leaves it replaces.
+    // Between, the facing blends; `up` is always the twig direction
+    // projected into the card plane.
     let outward = centroid - crown_centroid;
     let surface: Vec3 = leaves
         .iter()
@@ -332,11 +335,12 @@ fn fit_card(
         .try_normalize()
         .or_else(|| (tip - base).try_normalize())
         .unwrap_or(Vec3::Z);
-    let toward = (leaf_facing * surface.normalize_or_zero()
-        + (1.0 - leaf_facing) * outward.normalize_or_zero())
-    .try_normalize()
-    .or_else(|| outward.try_normalize())
-    .unwrap_or_else(|| twig.any_orthonormal_vector());
+    let across = (outward - twig * outward.dot(twig))
+        .try_normalize()
+        .unwrap_or_else(|| twig.any_orthonormal_vector());
+    let toward = ((1.0 - leaf_facing) * across + leaf_facing * surface.normalize_or_zero())
+        .try_normalize()
+        .unwrap_or(across);
     let up = (twig - toward * twig.dot(toward))
         .try_normalize()
         .or_else(|| (Vec3::Z - toward * toward.z).try_normalize())
