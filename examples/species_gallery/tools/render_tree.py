@@ -14,7 +14,10 @@ trunk base) next to the input, all in Workbench for geometry review, then
 lit renders of the whole tree in EEVEE under a sun and sky: `tree-lit.png`
 (sun behind the camera) and `tree-backlit.png` (sun behind the tree), each
 with translucent leaves, and `tree-lit-opaque.png` and
-`tree-backlit-opaque.png` without, for comparison. Translucency comes from
+`tree-backlit-opaque.png` without, for comparison. `tree-canopy.png` and
+`tree-canopy-opaque.png` look up into the crown from beneath its edge
+toward a low sun under a dim sky, where translucency matters most: lit
+leaves glow against the shaded ones in front. Translucency comes from
 the leaf set's `diffuse_transmission.png` (tint RGB, weight A), the texture
 the GLBs bind through `KHR_materials_diffuse_transmission`; without it,
 leaves transmit 35% tinted by their base colour.
@@ -164,8 +167,25 @@ def render_lit(scene, objects, out_dir, center, size, transmission):
     # Light travelling from behind the tree toward the camera, from above.
     travel = Vector((view.x, view.y, view.z - 0.8)).normalized()
     back = (-travel).to_track_quat("Z", "Y").to_euler()
-    for name, rotation in (("tree-lit", front), ("tree-backlit", back)):
+    shots = [("tree-lit", cam, front, 0.8, 4.0), ("tree-backlit", cam, back, 0.8, 4.0)]
+    # Beneath the crown's edge, looking up through it into a low sun whose
+    # light passes through the leaves toward the camera; a dim sky keeps
+    # ambient light from filling the shaded leaves.
+    canopy = add_camera(
+        scene, center + Vector((0.0, 0.0, size * 0.1)), size * 0.55,
+        math.radians(-60), math.radians(-25), "canopy",
+    )
+    canopy.data.lens = 28
+    up = (center - canopy.location).normalized()
+    sun_travel = Vector((-up.x, -up.y, -0.35)).normalized()
+    low = (-sun_travel).to_track_quat("Z", "Y").to_euler()
+    # A stronger sun: only light passing through the outer leaves reaches us.
+    shots.append(("tree-canopy", canopy, low, 0.25, 10.0))
+    for name, camera, rotation, sky, energy in shots:
+        scene.camera = camera
         sun_obj.rotation_euler = rotation
+        sun.energy = energy
+        background.inputs[1].default_value = sky
         for suffix, on in (("", True), ("-opaque", False)):
             for mix, weight in mixes:
                 set_translucency(mix, weight, on)
@@ -183,6 +203,10 @@ def translucent(material, transmission):
     nodes = material.node_tree.nodes
     links = material.node_tree.links
     bsdf = nodes["Principled BSDF"]
+    # Leaves are waxy but not glossy; the default 0.5 roughness and full
+    # specular turn sunlit leaves white at grazing angles.
+    bsdf.inputs["Roughness"].default_value = 0.65
+    bsdf.inputs["Specular IOR Level"].default_value = 0.25
     output = nodes["Material Output"]
     back = nodes.new("ShaderNodeBsdfTranslucent")
     mix = nodes.new("ShaderNodeMixShader")
