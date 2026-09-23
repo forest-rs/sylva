@@ -82,14 +82,14 @@ clippy.allow_attributes = "warn"
 # `scalar-math` disables SIMD code paths, so results are bit-identical across
 # platforms. Determinism is a sylva contract, not a performance afterthought.
 # Dapple is pinned to a reviewed `main` revision until it publishes releases.
-dapple_encode = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "dc3aaf89f3c20a74bbe7f0093629f9481099bb17" }
-dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "dc3aaf89f3c20a74bbe7f0093629f9481099bb17" }
-dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "dc3aaf89f3c20a74bbe7f0093629f9481099bb17" }
+dapple_encode = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "3448f47f09559359732d4b70eac61c968bca17cd" }
+dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "3448f47f09559359732d4b70eac61c968bca17cd" }
+dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "3448f47f09559359732d4b70eac61c968bca17cd" }
 # Exedra is pinned to a reviewed `main` revision until it publishes releases.
-exedra_assembly = { default-features = false, features = ["std"], git = "https://github.com/forest-rs/exedra", rev = "aaface7292c6622be6e9fa8b453fe3b73abcf9f3" }
-exedra_gltf = { git = "https://github.com/forest-rs/exedra", rev = "aaface7292c6622be6e9fa8b453fe3b73abcf9f3" }
-exedra_math = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "aaface7292c6622be6e9fa8b453fe3b73abcf9f3" }
-exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "aaface7292c6622be6e9fa8b453fe3b73abcf9f3" }
+exedra_assembly = { default-features = false, features = ["std"], git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
+exedra_gltf = { git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
+exedra_math = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
+exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
 glam = { default-features = false, features = ["libm", "scalar-math"], version = "0.33.7" }
 libm = "0.2.16"
 # OpenPBR parameters are pinned to a reviewed `main` revision until published.
