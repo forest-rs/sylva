@@ -203,8 +203,15 @@ impl Default for Arrangement {
 pub const GOLDEN_ANGLE: f32 = 2.399_963_2;
 
 /// Foliage sites along a level's branches.
+///
+/// Each site's frame points away from its branch at `angle` from the branch
+/// axis, rolling by the golden angle from site to site. Many trees crowd
+/// their leaves at the shoot ends (oak most visibly), which `tip_cluster`
+/// models as a whorl of extra sites over the last `cluster_span` of each
+/// branch.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct Sites {
     /// Sites per metre of the span; fractional counts round with keyed
     /// probability.
@@ -213,6 +220,26 @@ pub struct Sites {
     pub span: [f32; 2],
     /// Caller-defined site kind (leaf, fruit, ...), copied to each site.
     pub kind: u32,
+    /// Angle between the branch axis and each site's outward direction, in
+    /// radians, in `(0, pi)`.
+    pub angle: f32,
+    /// Extra sites crowded in a whorl at each branch tip.
+    pub tip_cluster: u32,
+    /// Fraction of the branch, ending at the tip, that the whorl occupies.
+    pub cluster_span: f32,
+}
+
+impl Default for Sites {
+    fn default() -> Self {
+        Self {
+            per_metre: 0.0,
+            span: [0.0, 1.0],
+            kind: 0,
+            angle: 0.8,
+            tip_cluster: 0,
+            cluster_span: 0.1,
+        }
+    }
 }
 
 /// A crown envelope around the trunk axis.

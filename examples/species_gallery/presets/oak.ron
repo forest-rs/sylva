@@ -82,7 +82,16 @@ Species(
                     kink_interval: 0.12,
                     kink_jitter: 0.3,
                 ),
-                sites: Some((per_metre: 12.0, span: (0.3, 1.0), kind: 0)),
+                // A few leaves along each twig and a whorl crowded at its tip, as
+                // oak carries them.
+                sites: Some((
+                    per_metre: 6.0,
+                    span: (0.3, 1.0),
+                    kind: 0,
+                    angle: 0.9,
+                    tip_cluster: 7,
+                    cluster_span: 0.15,
+                )),
             ),
         ],
         // A broad dome. Scaffold limbs are trimmed too, so a drooping limb tip

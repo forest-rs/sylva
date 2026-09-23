@@ -64,6 +64,8 @@ fn fixture() -> Hierarchy {
                     per_metre: 6.0,
                     span: [0.3, 1.0],
                     kind: 1,
+                    tip_cluster: 4,
+                    ..Sites::default()
                 }),
                 ..Level::default()
             },
@@ -363,4 +365,30 @@ fn kinks_zig_zag_around_the_trend_without_steering_it() {
     let straight = grow(&hierarchy, 0).expect("straight");
     let nodes = &straight.skeleton.branches()[0].nodes;
     assert!((nodes.last().unwrap().position - Vec3::new(0.0, 0.0, 6.0)).length() < 1e-4);
+}
+
+#[test]
+fn sites_point_away_from_their_branch_and_crowd_the_tip() {
+    let grown = grow(&fixture(), 11).expect("grow");
+    let skeleton = &grown.skeleton;
+    let sites = Sites::default();
+    let mut whorls = 0;
+    for site in skeleton.sites() {
+        let branch = skeleton.branch(site.branch).expect("branch");
+        let axis = branch.sample(site.t).frame.tangent;
+        let angle = libm::acosf(site.frame.tangent.dot(axis).clamp(-1.0, 1.0));
+        assert!(
+            (angle - sites.angle).abs() < 1e-3,
+            "outward at the insertion angle: {angle}"
+        );
+        assert!(site.frame.is_orthonormal(1e-4));
+        if site.t > 1.0 - sites.cluster_span {
+            whorls += 1;
+        }
+    }
+    let twigs = grown.report.branches_by_level[3] as u64;
+    assert!(
+        whorls >= 4 * twigs,
+        "every twig carries its whorl: {whorls} tip sites on {twigs} twigs"
+    );
 }

@@ -465,6 +465,9 @@ fn place_sites(
             per_metre,
             span: [lo, hi],
             kind,
+            angle,
+            tip_cluster,
+            cluster_span,
         }) = level.sites
         else {
             continue;
@@ -474,21 +477,42 @@ fn place_sites(
             per_metre * branch.length() * (hi - lo),
             key.with(tag("count")),
         );
+        // An outward frame at `t`, rolled by `roll` about the branch.
+        let outward = |t: f32, roll: f32| {
+            let axis = branch.sample(t).frame;
+            let side = Quat::from_axis_angle(axis.tangent, roll) * axis.normal;
+            let out = side * libm::sinf(angle) + axis.tangent * libm::cosf(angle);
+            Frame::from_tangent(out, axis.tangent).unwrap_or(axis)
+        };
         for ordinal in 0..count {
             let site_key = key.with(u64::from(ordinal));
-            let t = lo
+            let t = (lo
                 + (hi - lo) * (ordinal as f32 + 0.5 + 0.4 * site_key.signed_unit_f32())
-                    / count as f32;
-            let frame = branch.sample(t.clamp(0.0, 1.0)).frame;
-            let roll = crate::GOLDEN_ANGLE * ordinal as f32;
-            let normal = Quat::from_axis_angle(frame.tangent, roll) * frame.normal;
-            let frame = Frame::from_tangent(frame.tangent, normal).unwrap_or(frame);
+                    / count as f32)
+                .clamp(0.0, 1.0);
             sites.push(Site {
                 branch: branch.id,
                 ordinal,
                 kind,
-                t: t.clamp(0.0, 1.0),
-                frame,
+                t,
+                frame: outward(t, crate::GOLDEN_ANGLE * ordinal as f32),
+                scale: 1.0,
+            });
+        }
+        // The tip whorl: evenly spread around the branch, crowded toward the
+        // tip.
+        let whorl = key.with(tag("whorl"));
+        for i in 0..tip_cluster {
+            let k = whorl.with(u64::from(i));
+            let t = (1.0 - cluster_span * (i as f32 + 0.5 * k.unit_f32()) / tip_cluster as f32)
+                .clamp(0.0, 1.0);
+            let roll = TAU * (i as f32 + 0.3 * k.with(1).signed_unit_f32()) / tip_cluster as f32;
+            sites.push(Site {
+                branch: branch.id,
+                ordinal: count + i,
+                kind,
+                t,
+                frame: outward(t, roll),
                 scale: 1.0,
             });
         }

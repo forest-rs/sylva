@@ -118,7 +118,13 @@ pub(crate) fn check(h: &Hierarchy) -> Result<(), GrowError> {
         }
         shape(at, &level.shape)?;
         if let Some(sites) = level.sites
-            && !(sites.per_metre.is_finite() && sites.per_metre >= 0.0 && span(sites.span))
+            && !(sites.per_metre.is_finite()
+                && sites.per_metre >= 0.0
+                && span(sites.span)
+                && sites.angle > 0.0
+                && sites.angle < core::f32::consts::PI
+                && sites.tip_cluster <= 1024
+                && (0.0..=1.0).contains(&sites.cluster_span))
         {
             return Err(invalid(at, "sites"));
         }
