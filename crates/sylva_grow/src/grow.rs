@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use core::f32::consts::{PI, TAU};
 
 use sylva_skeleton::glam::{Quat, Vec3};
-use sylva_skeleton::keyed::{Key, tag};
+use sylva_skeleton::keyed::{Key, SignedUnit, tag};
 use sylva_skeleton::passes::{
     FrameParams, FrameReport, PipeModel, PipeReport, compute_frames, pipe_model_radii,
 };

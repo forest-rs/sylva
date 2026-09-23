@@ -26,7 +26,7 @@ use std::time::Instant;
 
 use glam::{Quat, Vec3};
 use skeleton_dump::{skeleton_json, skeleton_obj};
-use sylva_skeleton::keyed::tag;
+use sylva_skeleton::keyed::{SignedUnit, tag};
 use sylva_skeleton::passes::{FrameParams, PipeModel, compute_frames, pipe_model_radii};
 use sylva_skeleton::{Attachment, Branch, BranchId, Frame, Node, Site, Skeleton, SkeletonError};
 

@@ -9,23 +9,11 @@
 //! unrelated ones. This is what makes incremental regeneration and art
 //! direction stable.
 //!
-//! # Contract
-//!
-//! This is a cross-repository contract, shared bit-for-bit with dapple and
-//! intended to move into `exedra_math`. Do not change it without changing
-//! every implementation and its golden vectors.
-//!
-//! ```text
-//! splitmix64_mix(z) = z ^= z >> 30; z *= 0xBF58476D1CE4E5B9;
-//!                     z ^= z >> 27; z *= 0x94D049BB133111EB;
-//!                     z ^ (z >> 31)                      (wrapping u64 arithmetic)
-//! mix(h, k)         = splitmix64_mix(h ^ (k * 0x9E3779B97F4A7C15))
-//! hash(seed, keys)  = keys.fold(seed, mix)               (so hash(seed, []) = seed)
-//! unit_f32(h)       = (h >> 40) as f32 * 2^-24           (in [0, 1))
-//! unit_f64(h)       = (h >> 11) as f64 * 2^-53           (in [0, 1))
-//! ```
-//!
-//! Golden vectors:
+//! The hash is `exedra_math::keyed`, version 1 of the cross-repository keyed
+//! hash contract (`exedra_math` ADR-0001), shared bit for bit with dapple.
+//! This module re-exports it and adds [`SignedUnit`], a sylva convenience
+//! outside that contract. The golden vectors below are checked here too, so
+//! a dependency bump that changed the contract would fail sylva's tests.
 //!
 //! ```text
 //! hash(0, [])                  = 0x0000000000000000
@@ -33,134 +21,40 @@
 //! hash(u64::MAX, [0])          = 0xb4d055fcf2cbbd7b
 //! unit_f32(0x614aeb9ed12ccf8d) = 0.38004941   (bits 0x3ec295d6)
 //! unit_f64(0x614aeb9ed12ccf8d) = 0.3800494444596324
-//! unit_f32(0xb4d055fcf2cbbd7b) = 0.70630390   (bits 0x3f34d055)
-//! unit_f64(0xb4d055fcf2cbbd7b) = 0.7063039534139496
-//! unit_f32(u64::MAX)           = 0.99999994   (bits 0x3f7fffff)
-//! unit_f64(u64::MAX)           = 0.9999999999999999
+//! tag("")                      = 0xcbf29ce484222325
+//! tag("a")                     = 0xaf63dc4c8601ec8c
 //! ```
 //!
 //! # Example
 //! ```rust
-//! use sylva_skeleton::keyed::{Key, hash, tag};
+//! use sylva_skeleton::keyed::{Key, SignedUnit, hash, tag};
 //!
 //! assert_eq!(hash(0, &[]), 0);
 //! let angle = Key::new(7).with(tag("branch.angle")).with(3).unit_f32();
 //! assert!((0.0..1.0).contains(&angle));
+//! let jitter = Key::new(7).with(tag("branch.roll")).signed_unit_f32();
+//! assert!((-1.0..1.0).contains(&jitter));
 //! ```
 
-/// SplitMix64's output finalizer.
-#[must_use]
-pub const fn splitmix64_mix(mut z: u64) -> u64 {
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
+pub use exedra_math::keyed::{Key, hash, mix, splitmix64_mix, tag, unit_f32, unit_f64};
+
+/// Signed unit values from a [`Key`]: a sylva convenience, not part of the
+/// keyed hash contract.
+pub trait SignedUnit {
+    /// A value in `[-1, 1)`: `2 * unit_f32 - 1`, exact because `unit_f32`
+    /// has 24 significant bits.
+    fn signed_unit_f32(self) -> f32;
 }
 
-/// Folds one key into a hash state.
-#[must_use]
-pub const fn mix(h: u64, k: u64) -> u64 {
-    splitmix64_mix(h ^ k.wrapping_mul(0x9E37_79B9_7F4A_7C15))
-}
-
-/// Folds `keys` left into `seed` with [`mix`].
-#[must_use]
-pub const fn hash(seed: u64, keys: &[u64]) -> u64 {
-    let mut h = seed;
-    let mut i = 0;
-    while i < keys.len() {
-        h = mix(h, keys[i]);
-        i += 1;
-    }
-    h
-}
-
-/// Maps a hash to `[0, 1)` using its top 24 bits.
-///
-/// The shifted value has 24 bits, so the conversion to `f32` is exact.
-#[must_use]
-pub const fn unit_f32(h: u64) -> f32 {
-    (h >> 40) as u32 as f32 * (1.0 / 16_777_216.0)
-}
-
-/// Maps a hash to `[0, 1)` using its top 53 bits.
-///
-/// The shifted value has 53 bits, so the conversion to `f64` is exact.
-#[must_use]
-pub const fn unit_f64(h: u64) -> f64 {
-    (h >> 11) as f64 * (1.0 / 9_007_199_254_740_992.0)
-}
-
-/// A purpose tag from a name: 64-bit FNV-1a over its UTF-8 bytes.
-///
-/// Tags make keys readable (`tag("branch.angle")`) while staying plain `u64`
-/// keys. This helper is a sylva convenience, not part of the shared contract;
-/// hashes built from tags are only as portable as the tag names.
-#[must_use]
-pub const fn tag(name: &str) -> u64 {
-    let bytes = name.as_bytes();
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut i = 0;
-    while i < bytes.len() {
-        h ^= bytes[i] as u64;
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-        i += 1;
-    }
-    h
-}
-
-/// A hash state that accumulates keys, then yields values.
-///
-/// `Key::new(seed).with(a).with(b)` equals `hash(seed, &[a, b])`.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-pub struct Key(u64);
-
-impl Key {
-    /// Starts from a seed.
-    #[must_use]
-    pub const fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    /// Folds in one more key.
-    #[must_use]
-    pub const fn with(self, key: u64) -> Self {
-        Self(mix(self.0, key))
-    }
-
-    /// The raw 64-bit hash.
-    #[must_use]
-    pub const fn bits(self) -> u64 {
-        self.0
-    }
-
-    /// A value in `[0, 1)`.
-    #[must_use]
-    pub const fn unit_f32(self) -> f32 {
-        unit_f32(self.0)
-    }
-
-    /// A value in `[0, 1)`.
-    #[must_use]
-    pub const fn unit_f64(self) -> f64 {
-        unit_f64(self.0)
-    }
-
-    /// A value in `[lo, hi)` (or `hi` itself when rounding lands there).
-    #[must_use]
-    pub fn range_f32(self, lo: f32, hi: f32) -> f32 {
-        lo + (hi - lo) * self.unit_f32()
-    }
-
-    /// A value in `[-1, 1)`. Exact: `unit_f32` has 24 significant bits.
-    #[must_use]
-    pub fn signed_unit_f32(self) -> f32 {
+impl SignedUnit for Key {
+    fn signed_unit_f32(self) -> f32 {
         self.unit_f32() * 2.0 - 1.0
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Key, hash, mix, splitmix64_mix, tag, unit_f32, unit_f64};
+    use super::{Key, SignedUnit, hash, mix, splitmix64_mix, tag, unit_f32, unit_f64};
 
     #[test]
     fn golden_vectors_match_the_documented_contract() {

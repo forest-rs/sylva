@@ -84,7 +84,8 @@ dapple_encode = { default-features = false, git = "https://github.com/forest-rs/
 dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "dc3aaf89f3c20a74bbe7f0093629f9481099bb17" }
 dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "dc3aaf89f3c20a74bbe7f0093629f9481099bb17" }
 # Exedra is pinned to a reviewed `main` revision until it publishes releases.
-exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "e286bcbebdfd86e2bc0e385c9557faede85a48f3" }
+exedra_math = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "d959d3dab36ccc50f77817f1a37e2ae4ff73cc23" }
+exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "d959d3dab36ccc50f77817f1a37e2ae4ff73cc23" }
 glam = { default-features = false, features = ["libm", "scalar-math"], version = "0.33.7" }
 libm = "0.2.16"
 serde = { default-features = false, features = ["alloc", "derive"], version = "1.0.228" }

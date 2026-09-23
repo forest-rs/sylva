@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use exedra_mesh::Mesh;
 use glam::{Mat3, Quat, Vec3};
 use sylva_skeleton::Skeleton;
-use sylva_skeleton::keyed::{Key, tag};
+use sylva_skeleton::keyed::{Key, SignedUnit, tag};
 
 use crate::{FoliageError, LeafShape, leaf_mesh};
 

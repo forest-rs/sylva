@@ -71,7 +71,7 @@ dependencies = [
 [[package]]
 name = "exedra_math"
 version = "0.1.0"
-source = "git+https://github.com/forest-rs/exedra?rev=e286bcbebdfd86e2bc0e385c9557faede85a48f3#e286bcbebdfd86e2bc0e385c9557faede85a48f3"
+source = "git+https://github.com/forest-rs/exedra?rev=d959d3dab36ccc50f77817f1a37e2ae4ff73cc23#d959d3dab36ccc50f77817f1a37e2ae4ff73cc23"
 dependencies = [
  "libm",
 ]
@@ -79,7 +79,7 @@ dependencies = [
 [[package]]
 name = "exedra_mesh"
 version = "0.1.0"
-source = "git+https://github.com/forest-rs/exedra?rev=e286bcbebdfd86e2bc0e385c9557faede85a48f3#e286bcbebdfd86e2bc0e385c9557faede85a48f3"
+source = "git+https://github.com/forest-rs/exedra?rev=d959d3dab36ccc50f77817f1a37e2ae4ff73cc23#d959d3dab36ccc50f77817f1a37e2ae4ff73cc23"
 dependencies = [
  "exedra_math",
  "exedra_triangulate",
@@ -91,7 +91,7 @@ dependencies = [
 [[package]]
 name = "exedra_triangulate"
 version = "0.1.0"
-source = "git+https://github.com/forest-rs/exedra?rev=e286bcbebdfd86e2bc0e385c9557faede85a48f3#e286bcbebdfd86e2bc0e385c9557faede85a48f3"
+source = "git+https://github.com/forest-rs/exedra?rev=d959d3dab36ccc50f77817f1a37e2ae4ff73cc23#d959d3dab36ccc50f77817f1a37e2ae4ff73cc23"
 
 [[package]]
 name = "fdeflate"
@@ -337,6 +337,7 @@ dependencies = [
 name = "sylva_skeleton"
 version = "0.0.1"
 dependencies = [
+ "exedra_math",
  "glam",
  "libm",
 ]
