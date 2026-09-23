@@ -48,7 +48,8 @@ use sylva_bake::BakeMaterial;
 use sylva_foliage::{Foliage, leaf_mask, place_leaves};
 use sylva_gltf::{MaterialTextures, export_lod_glb};
 use sylva_lod::{
-    Atlas, AtlasSettings, CardMaterials, LodPolicy, bake_clusters, bake_impostor, build_lods,
+    Atlas, AtlasSettings, CardMaterials, Impostor, ImpostorLayout, ImpostorPolicy, LodPolicy,
+    bake_clusters, bake_impostor, build_lods,
 };
 use sylva_mesh::{BRANCH_LAYER, MeshParams, mesh_skeleton};
 use sylva_texture::{BarkRecipe, LeafRecipe, bark, leaf};
@@ -329,6 +330,42 @@ fn write_lods(
         );
         write_atlas(&out.join("impostor"), &atlas)?;
         std::fs::write(out.join("impostor.obj"), bark_obj(&impostor.geometry())?)?;
+
+        // An octahedral impostor for review beside the crossed one: 8 x 8
+        // frames over the upper hemisphere.
+        let octahedral = Impostor::fit(
+            skeleton,
+            foliage,
+            ImpostorPolicy {
+                layout: ImpostorLayout::Octahedral { frames: 8 },
+                ..ImpostorPolicy::default()
+            },
+        );
+        let baked = Instant::now();
+        let atlas = bake_impostor(
+            bark,
+            foliage,
+            &octahedral,
+            &materials,
+            &AtlasSettings {
+                cell: [256, 256],
+                samples: 4,
+            },
+        )?;
+        println!(
+            "octahedral impostor: {} frames baked in {} ms",
+            octahedral.views.len(),
+            baked.elapsed().as_millis()
+        );
+        write_atlas(&out.join("octahedral"), &atlas)?;
+        let view = &octahedral.views[0];
+        std::fs::write(
+            out.join("octahedral.json"),
+            format!(
+                "{{\"frames\":8,\"center\":[{},{},{}],\"radius\":{}}}\n",
+                view.center.x, view.center.y, view.center.z, view.half.x
+            ),
+        )?;
     }
     if seed == 1 {
         write_glbs(dir, skeleton, foliage, &chain)?;

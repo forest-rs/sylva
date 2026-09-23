@@ -11,8 +11,9 @@ use sylva_skeleton::passes::{FrameParams, PipeModel, compute_frames, pipe_model_
 use sylva_skeleton::{Attachment, Branch, BranchId, Frame, Node, Site, Skeleton};
 
 use crate::{
-    AtlasLayout, AtlasSettings, CardMaterials, ClusterCards, ImpostorPolicy, LeafDetail, LodError,
-    LodPolicy, bake_clusters, bake_impostor, build_lods,
+    AtlasLayout, AtlasSettings, CardMaterials, ClusterCards, Impostor, ImpostorLayout,
+    ImpostorPolicy, LeafDetail, LodError, LodPolicy, bake_clusters, bake_impostor, build_lods,
+    hemi_octahedral_decode, hemi_octahedral_encode,
 };
 use exedra_mesh::{ExtractAttribute, ExtractParams, NormalsSource, TriMesh};
 use sylva_bake::BakeMaterial;
@@ -386,6 +387,57 @@ fn cluster_and_impostor_atlases_bake_deterministically() {
     let coverage = billboard.baked.opacity.values().iter().sum::<f32>() / (3.0 * 24.0 * 32.0);
     assert!(coverage > 0.05, "every plane sees the tree: {coverage}");
 
+    // An octahedral impostor: 3 x 3 frames over the upper hemisphere.
+    let octahedral = Impostor::fit(
+        &skeleton,
+        &foliage,
+        ImpostorPolicy {
+            layout: ImpostorLayout::Octahedral { frames: 3 },
+            ..ImpostorPolicy::default()
+        },
+    );
+    assert_eq!(octahedral.views.len(), 9);
+    assert_eq!(
+        octahedral.layout(),
+        AtlasLayout {
+            columns: 3,
+            rows: 3
+        }
+    );
+    // Straight down onto the crown is the grid's centre frame; frames face
+    // the direction they were baked from.
+    assert_eq!(octahedral.frame_for(Vec3::Z), Some(4));
+    for (cell, view) in octahedral.views.iter().enumerate() {
+        let cell = u32::try_from(cell).expect("small");
+        assert_eq!(octahedral.frame_for(view.toward()), Some(cell));
+        assert!(view.toward().z >= -1e-6);
+    }
+    // Below the horizon clamps to a horizon frame.
+    assert_eq!(
+        octahedral.frame_for(Vec3::new(0.0, -1.0, -0.5)),
+        octahedral.frame_for(Vec3::NEG_Y)
+    );
+    assert_eq!(octahedral.geometry().indices.len(), 6);
+    let frames =
+        bake_impostor(&bark, &foliage, &octahedral, &materials, &settings).expect("octahedral");
+    for cell in 0..9_u32 {
+        let [u0, v0, u1, v1] = octahedral.layout().cell(cell);
+        let (w, h) = (frames.baked.opacity.width(), frames.baked.opacity.height());
+        let mut covered = 0.0;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss,
+            reason = "texel bounds of a small atlas"
+        )]
+        for y in (v0 * h as f32) as u32..(v1 * h as f32) as u32 {
+            for x in (u0 * w as f32) as u32..(u1 * w as f32) as u32 {
+                covered += frames.baked.opacity.texel(x, y)[0];
+            }
+        }
+        assert!(covered > 0.0, "frame {cell} sees the tree");
+    }
+
     let unbranched = TriMesh {
         attributes: Vec::new(),
         ..bark.clone()
@@ -419,12 +471,42 @@ fn impostors_must_come_last() {
     );
     let planes = LodPolicy {
         impostor: Some(ImpostorPolicy {
-            planes: 0,
+            layout: ImpostorLayout::Crossed { planes: 0 },
             ..ImpostorPolicy::default()
         }),
         ..LodPolicy::default()
     };
     assert_eq!(planes.validate(), Err(LodError::Impostor("planes")));
+    let frames = LodPolicy {
+        impostor: Some(ImpostorPolicy {
+            layout: ImpostorLayout::Octahedral { frames: 1 },
+            ..ImpostorPolicy::default()
+        }),
+        ..LodPolicy::default()
+    };
+    assert_eq!(frames.validate(), Err(LodError::Impostor("frames")));
+}
+
+#[test]
+fn hemi_octahedral_map_round_trips() {
+    for &d in &[
+        Vec3::Z,
+        Vec3::X,
+        Vec3::NEG_Y,
+        Vec3::new(1.0, 2.0, 3.0).normalize(),
+        Vec3::new(-0.3, 0.8, 0.1).normalize(),
+        Vec3::new(0.6, -0.6, 0.0).normalize(),
+    ] {
+        let uv = hemi_octahedral_encode(d);
+        assert!(
+            (0.0..=1.0).contains(&uv.x) && (0.0..=1.0).contains(&uv.y),
+            "{uv}"
+        );
+        let back = hemi_octahedral_decode(uv);
+        assert!(back.distance(d) < 1e-5, "{d} -> {uv} -> {back}");
+    }
+    // Straight up is the square's centre.
+    assert!(hemi_octahedral_encode(Vec3::Z).distance(glam::Vec2::splat(0.5)) < 1e-6);
 }
 
 #[test]

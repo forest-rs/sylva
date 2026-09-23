@@ -43,7 +43,9 @@ use core::fmt;
 
 pub use bake::{Atlas, AtlasSettings, CardMaterials, bake_clusters, bake_impostor};
 pub use clusters::{AtlasLayout, ClusterCard, ClusterCards, ClusterVariant, Clusters};
-pub use impostor::{Impostor, ImpostorPolicy};
+pub use impostor::{
+    Impostor, ImpostorLayout, ImpostorPolicy, hemi_octahedral_decode, hemi_octahedral_encode,
+};
 
 use exedra_mesh::Mesh;
 use sylva_foliage::{Foliage, FoliageError, LeafInstance, LeafShape, card_mesh, leaf_mesh};
@@ -338,7 +340,12 @@ impl LodPolicy {
                 "screen_size order",
             )?;
             bad((0.0..1.0).contains(&impostor.crossfade), "crossfade")?;
-            bad((1..=8).contains(&impostor.planes), "planes")?;
+            match impostor.layout {
+                ImpostorLayout::Crossed { planes } => bad((1..=8).contains(&planes), "planes")?,
+                ImpostorLayout::Octahedral { frames } => {
+                    bad((2..=16).contains(&frames), "frames")?;
+                }
+            }
         }
         Ok(())
     }

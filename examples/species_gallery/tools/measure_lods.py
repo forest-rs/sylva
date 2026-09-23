@@ -6,7 +6,7 @@
     blender --background --python examples/species_gallery/tools/measure_lods.py -- .local/gallery/species-gallery/oak-seed1
 
 Reads `lods.png` and `lods-small.png`, splits each into one equal column per
-level (the layout `render_lods.py` uses), and prints, per level, the fraction
+level and impostor (the layout `render_lods.py` uses), and prints, per level, the fraction
 of the column the tree covers and the mean colour of the covered pixels,
 relative to LOD1. A crossfade between two levels pops when either differs
 much; the goal is coverage within a few percent and colour within a few
@@ -53,7 +53,11 @@ def measure(pixels, columns):
 def main():
     out_dir = args()
     lods = out_dir / "lods"
-    columns = len(sorted(lods.glob("lod*-bark.obj"))) + int((lods / "impostor.obj").exists())
+    columns = (
+        len(sorted(lods.glob("lod*-bark.obj")))
+        + int((lods / "impostor.obj").exists())
+        + int((lods / "octahedral.json").exists())
+    )
     report = {}
     for name in ("lods.png", "lods-small.png"):
         levels = measure(load(out_dir / name), columns)
