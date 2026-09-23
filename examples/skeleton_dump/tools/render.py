@@ -3,7 +3,7 @@
 
 """Render a skeleton_dump output directory with headless Blender.
 
-    blender --background --python examples/skeleton_dump/tools/render.py -- target/skeleton-dump
+    blender --background --python examples/skeleton_dump/tools/render.py -- .local/gallery/skeleton-dump
 
 Reads `skeleton.json` and builds one curve per branch whose bevel radius
 follows the pipe-model radii, so the render shows the IR exactly: centerlines,

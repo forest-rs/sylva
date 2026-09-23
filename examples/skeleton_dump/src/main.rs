@@ -5,8 +5,8 @@
 //! dumps for visual review.
 //!
 //! ```sh
-//! cargo run -p skeleton_dump -- target/skeleton-dump
-//! blender --background --python examples/skeleton_dump/tools/render.py -- target/skeleton-dump
+//! cargo run -p skeleton_dump -- .local/gallery/skeleton-dump
+//! blender --background --python examples/skeleton_dump/tools/render.py -- .local/gallery/skeleton-dump
 //! ```
 //!
 //! Outputs:
@@ -197,7 +197,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = PathBuf::from(
         std::env::args()
             .nth(1)
-            .unwrap_or_else(|| "target/skeleton-dump".to_owned()),
+            .unwrap_or_else(|| ".local/gallery/skeleton-dump".to_owned()),
     );
     std::fs::create_dir_all(&out_dir)?;
 

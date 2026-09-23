@@ -3,7 +3,7 @@
 
 """Render a species_gallery tree's exported GLB levels in headless Blender.
 
-    blender --background --python examples/species_gallery/tools/render_glb.py -- target/species-gallery/oak-seed1
+    blender --background --python examples/species_gallery/tools/render_glb.py -- .local/gallery/species-gallery/oak-seed1
 
 Imports every `glb/lod<n>.glb` with Blender's glTF importer, unchanged, so
 materials, textures, alpha modes and normals are exactly what the files

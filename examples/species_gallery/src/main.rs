@@ -5,13 +5,20 @@
 //! dump and the bark mesh for Blender review.
 //!
 //! ```sh
-//! cargo run --release -p species_gallery -- target/species-gallery
-//! for d in target/species-gallery/oak-*; do
+//! cargo run --release -p species_gallery -- .local/gallery/species-gallery
+//! for d in .local/gallery/species-gallery/oak-*; do
 //!   blender --background --python examples/skeleton_dump/tools/render.py -- "$d"
 //!   blender --background --python examples/species_gallery/tools/render_bark.py -- "$d"
 //!   blender --background --python examples/species_gallery/tools/render_tree.py -- "$d"
 //! done
+//! d=.local/gallery/species-gallery/oak-seed1
+//! blender --background --python examples/species_gallery/tools/render_lods.py -- "$d"
+//! blender --background --python examples/species_gallery/tools/measure_lods.py -- "$d"
+//! blender --background --python examples/species_gallery/tools/render_glb.py -- "$d"
 //! ```
+//!
+//! Outputs default to `.local/gallery/`, which is git-ignored and survives
+//! `cargo clean`; `target/` holds build artifacts only.
 //!
 //! `--seeds 1,3` grows only those seeds, and `--tree-only` skips the LOD
 //! chain, card bakes and glTF export, for quick crown iteration.
@@ -53,7 +60,7 @@ const OAK: &str = include_str!("../presets/oak.ron");
 const SEEDS: [u64; 3] = [1, 2, 3];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut out_dir = PathBuf::from("target/species-gallery");
+    let mut out_dir = PathBuf::from(".local/gallery/species-gallery");
     let mut seeds = SEEDS.to_vec();
     let mut tree_only = false;
     let mut args = std::env::args().skip(1);

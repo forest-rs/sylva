@@ -5,8 +5,8 @@ Grows a small keyed test tree, runs the shared `sylva_skeleton` passes
 validates the result, and writes debug dumps for visual review.
 
 ```sh
-cargo run -p skeleton_dump -- target/skeleton-dump
-blender --background --python examples/skeleton_dump/tools/render.py -- target/skeleton-dump
+cargo run -p skeleton_dump -- .local/gallery/skeleton-dump
+blender --background --python examples/skeleton_dump/tools/render.py -- .local/gallery/skeleton-dump
 ```
 
 - `skeleton.json`: branches (ID, order, parent attachment, nodes with position,

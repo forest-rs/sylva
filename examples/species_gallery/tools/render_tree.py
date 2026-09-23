@@ -3,7 +3,7 @@
 
 """Render a species_gallery tree, bark and leaves, in headless Blender.
 
-    blender --background --python examples/species_gallery/tools/render_tree.py -- target/species-gallery/oak-seed1
+    blender --background --python examples/species_gallery/tools/render_tree.py -- .local/gallery/species-gallery/oak-seed1
 
 Imports `bark.obj` and `leaves.obj` unchanged (sylva is Z-up, like Blender)
 and renders them two-sided. When the species' generated textures exist

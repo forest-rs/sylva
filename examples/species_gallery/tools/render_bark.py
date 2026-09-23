@@ -3,7 +3,7 @@
 
 """Render a species_gallery bark mesh with a UV grid in headless Blender.
 
-    blender --background --python examples/species_gallery/tools/render_bark.py -- target/species-gallery/oak-seed1
+    blender --background --python examples/species_gallery/tools/render_bark.py -- .local/gallery/species-gallery/oak-seed1
 
 Imports `bark.obj` unchanged (sylva is Z-up, like Blender), keeps its
 authored normals, and textures it with Blender's generated UV grid so bark

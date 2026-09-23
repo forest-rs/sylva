@@ -3,7 +3,7 @@
 
 """Render a species_gallery LOD chain side by side in headless Blender.
 
-    blender --background --python examples/species_gallery/tools/render_lods.py -- target/species-gallery/oak-seed1
+    blender --background --python examples/species_gallery/tools/render_lods.py -- .local/gallery/species-gallery/oak-seed1
 
 Loads `lods/lod<n>-bark.obj`, `lods/lod<n>-leaves.obj` and, where the level
 has them, `lods/lod<n>-cards.obj` for every level, then `lods/impostor.obj`,
