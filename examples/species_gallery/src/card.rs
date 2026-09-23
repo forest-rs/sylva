@@ -215,7 +215,7 @@ pub(crate) fn bake_twig_card(
 
 /// Writes a 1-channel image in `[0, 1]` as an 8-bit grayscale PNG, row 0 on
 /// top as in dapple's output.
-fn write_gray(path: &Path, image: &Image) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn write_gray(path: &Path, image: &Image) -> Result<(), Box<dyn std::error::Error>> {
     let file = std::fs::File::create(path)?;
     let mut encoder =
         png::Encoder::new(std::io::BufWriter::new(file), image.width(), image.height());

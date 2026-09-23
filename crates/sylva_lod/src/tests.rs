@@ -10,7 +10,13 @@ use sylva_mesh::MeshParams;
 use sylva_skeleton::passes::{FrameParams, PipeModel, compute_frames, pipe_model_radii};
 use sylva_skeleton::{Attachment, Branch, BranchId, Frame, Node, Site, Skeleton};
 
-use crate::{LeafDetail, LodError, LodPolicy, build_lods};
+use crate::{
+    AtlasLayout, AtlasSettings, CardMaterials, ClusterCards, ImpostorPolicy, LeafDetail, LodError,
+    LodPolicy, bake_clusters, bake_impostor, build_lods,
+};
+use exedra_mesh::{ExtractAttribute, ExtractParams, NormalsSource, TriMesh};
+use sylva_bake::BakeMaterial;
+use sylva_mesh::{BRANCH_LAYER, mesh_skeleton};
 
 /// A trunk with a fan of side branches, each carrying twigs full of leaf
 /// sites.
@@ -108,7 +114,8 @@ fn levels_shrink_while_leaf_area_holds() {
         &MeshParams::default(),
         &LodPolicy::default(),
     )
-    .expect("chain");
+    .expect("chain")
+    .levels;
     assert_eq!(chain.len(), 4);
     let full = &chain[0];
     assert_eq!(full.report.leaves, foliage.report.leaves);
@@ -125,7 +132,7 @@ fn levels_shrink_while_leaf_area_holds() {
     assert!(chain[3].report.pruned_branches > 0, "twigs lose their bark");
     // Leaf area: survivors scale by 1 / sqrt(fraction), so the summed
     // squared scale stays near the full count.
-    for lod in &chain {
+    for lod in chain.iter().filter(|l| l.report.clustered_leaves == 0) {
         let area: f32 = lod.leaves.iter().map(|l| l.scale * l.scale).sum();
         #[expect(clippy::cast_precision_loss, reason = "leaf counts")]
         let full_area = foliage.report.leaves as f32;
@@ -149,7 +156,8 @@ fn leaf_subsets_nest_across_levels() {
         &MeshParams::default(),
         &LodPolicy::default(),
     )
-    .expect("chain");
+    .expect("chain")
+    .levels;
     for pair in chain.windows(2) {
         let finer: Vec<u32> = pair[0].leaves.iter().map(|l| l.site).collect();
         for leaf in &pair[1].leaves {
@@ -162,7 +170,8 @@ fn leaf_subsets_nest_across_levels() {
         &MeshParams::default(),
         &LodPolicy::default(),
     )
-    .expect("again");
+    .expect("again")
+    .levels;
     for (a, b) in chain.iter().zip(&again) {
         assert_eq!(a.leaves, b.leaves, "deterministic");
         assert_eq!(a.report, b.report);
@@ -184,6 +193,7 @@ fn policies_must_run_finest_first() {
             ..LodPolicy::default().levels[0]
         }],
         seed: 0,
+        impostor: None,
     };
     assert_eq!(
         bad.validate(),
@@ -192,4 +202,213 @@ fn policies_must_run_finest_first() {
             name: "leaf_fraction"
         })
     );
+}
+
+/// A policy whose coarse level clusters the test tree's twigs (order 2).
+fn clustered_policy() -> LodPolicy {
+    let mut policy = LodPolicy::default();
+    policy.levels[2].clusters = Some(ClusterCards {
+        root_order: 2,
+        variants: 3,
+        planes: 2,
+    });
+    policy.levels[3].clusters = Some(ClusterCards {
+        root_order: 1,
+        variants: 2,
+        planes: 1,
+    });
+    policy
+}
+
+fn full_bark(skeleton: &Skeleton) -> TriMesh {
+    let bark = mesh_skeleton(skeleton, &MeshParams::default()).expect("bark");
+    bark.mesh
+        .to_trimesh(&ExtractParams {
+            normals: NormalsSource::CustomOnly,
+            attributes: vec![ExtractAttribute::new(BRANCH_LAYER, u32::MAX)],
+            ..ExtractParams::default()
+        })
+        .0
+}
+
+#[test]
+fn clusters_replace_every_leaf_of_their_order() {
+    let (skeleton, foliage) = tree();
+    let chain = build_lods(
+        &skeleton,
+        &foliage,
+        &MeshParams::default(),
+        &clustered_policy(),
+    )
+    .expect("chain");
+    let twig_level = &chain.levels[2];
+    let clusters = twig_level.clusters.as_ref().expect("clusters");
+    // 6 limbs x 4 twigs, every one carrying leaves.
+    assert_eq!(clusters.cards.len(), 24);
+    assert_eq!(twig_level.report.cluster_cards, 24);
+    assert_eq!(twig_level.report.card_triangles, 24 * 2 * 2);
+    assert!(twig_level.leaves.is_empty(), "every leaf is on a twig");
+    assert_eq!(twig_level.report.clustered_leaves, foliage.report.leaves);
+    let members: usize = clusters.members.iter().map(Vec::len).sum();
+    assert_eq!(members as u64, foliage.report.leaves);
+    assert_eq!(clusters.variants.len(), 3);
+    for card in &clusters.cards {
+        assert!((card.right.length() - 1.0).abs() < 1e-4);
+        assert!(card.right.dot(card.up).abs() < 1e-4);
+        assert!(card.half.x > 0.0 && card.half.y > 0.0);
+        assert!((card.variant as usize) < clusters.variants.len());
+        // The card faces out of the crown.
+        let out = card.center - foliage.report.crown_centroid;
+        assert!(card.right.cross(card.up).dot(out) >= 0.0);
+        // Every member leaf lies inside the card's box.
+        for &l in &clusters.members[clusters.cards.iter().position(|c| c == card).unwrap()] {
+            let d = foliage.instances[l as usize].position - card.center;
+            assert!(d.dot(card.right).abs() <= card.half.x + 1e-4);
+            assert!(d.dot(card.up).abs() <= card.half.y + 1e-4);
+        }
+    }
+    // Twig bark goes with the cards.
+    assert!(twig_level.report.pruned_branches >= 24);
+    let geometry = clusters.geometry();
+    assert_eq!(geometry.indices.len(), 24 * 2 * 6);
+    assert!(
+        geometry
+            .uvs
+            .iter()
+            .all(|uv| (0.0..=1.0).contains(&uv[0]) && (0.0..=1.0).contains(&uv[1]))
+    );
+    // The limb level has six cards, one per limb subtree.
+    let limb_level = &chain.levels[3];
+    assert_eq!(
+        limb_level.clusters.as_ref().expect("clusters").cards.len(),
+        6
+    );
+    assert!(limb_level.report.triangles() < twig_level.report.triangles());
+}
+
+#[test]
+fn atlas_layouts_are_squarest_grids() {
+    assert_eq!(
+        AtlasLayout::for_cells(1),
+        AtlasLayout {
+            columns: 1,
+            rows: 1
+        }
+    );
+    assert_eq!(
+        AtlasLayout::for_cells(3),
+        AtlasLayout {
+            columns: 2,
+            rows: 2
+        }
+    );
+    assert_eq!(
+        AtlasLayout::for_cells(8),
+        AtlasLayout {
+            columns: 3,
+            rows: 3
+        }
+    );
+    assert_eq!(
+        AtlasLayout::for_cells(4).cell(3),
+        [0.5, 0.5, 1.0, 1.0],
+        "cells fill rows from v = 0"
+    );
+}
+
+#[test]
+fn cluster_and_impostor_atlases_bake_deterministically() {
+    let (skeleton, foliage) = tree();
+    let chain = build_lods(
+        &skeleton,
+        &foliage,
+        &MeshParams::default(),
+        &clustered_policy(),
+    )
+    .expect("chain");
+    let bark = full_bark(&skeleton);
+    let materials = CardMaterials {
+        bark: BakeMaterial {
+            color: [0.3, 0.2, 0.1],
+            ..BakeMaterial::default()
+        },
+        leaf: BakeMaterial {
+            color: [0.2, 0.5, 0.1],
+            ..BakeMaterial::default()
+        },
+    };
+    let settings = AtlasSettings {
+        cell: [24, 32],
+        samples: 2,
+    };
+    let clusters = chain.levels[2].clusters.as_ref().expect("clusters");
+    let atlas =
+        bake_clusters(&skeleton, &bark, &foliage, clusters, &materials, &settings).expect("atlas");
+    assert_eq!(
+        atlas.layout,
+        AtlasLayout {
+            columns: 2,
+            rows: 2
+        }
+    );
+    assert_eq!(atlas.baked.opacity.width(), 48);
+    assert_eq!(atlas.baked.opacity.height(), 64);
+    assert!(atlas.baked.report.covered_texels > 0);
+    // The unused fourth cell stays empty.
+    for y in 32..64 {
+        for x in 24..48 {
+            assert_eq!(atlas.baked.opacity.texel(x, y), [0.0]);
+        }
+    }
+    let again =
+        bake_clusters(&skeleton, &bark, &foliage, clusters, &materials, &settings).expect("again");
+    assert_eq!(atlas.baked.base_color, again.baked.base_color);
+
+    let impostor = chain.impostor.as_ref().expect("impostor");
+    assert_eq!(impostor.views.len(), 3);
+    assert_eq!(impostor.geometry().indices.len(), 3 * 6);
+    let billboard =
+        bake_impostor(&bark, &foliage, impostor, &materials, &settings).expect("impostor atlas");
+    let coverage = billboard.baked.opacity.values().iter().sum::<f32>() / (3.0 * 24.0 * 32.0);
+    assert!(coverage > 0.05, "every plane sees the tree: {coverage}");
+
+    let unbranched = TriMesh {
+        attributes: Vec::new(),
+        ..bark.clone()
+    };
+    assert_eq!(
+        bake_clusters(
+            &skeleton,
+            &unbranched,
+            &foliage,
+            clusters,
+            &materials,
+            &settings
+        )
+        .map(|_| ()),
+        Err(LodError::Bake("bark must carry the branch layer"))
+    );
+}
+
+#[test]
+fn impostors_must_come_last() {
+    let policy = LodPolicy {
+        impostor: Some(ImpostorPolicy {
+            screen_size: 0.2,
+            ..ImpostorPolicy::default()
+        }),
+        ..LodPolicy::default()
+    };
+    assert_eq!(
+        policy.validate(),
+        Err(LodError::Impostor("screen_size order"))
+    );
+    let planes = LodPolicy {
+        impostor: Some(ImpostorPolicy {
+            planes: 0,
+            ..ImpostorPolicy::default()
+        }),
+        ..LodPolicy::default()
+    };
+    assert_eq!(planes.validate(), Err(LodError::Impostor("planes")));
 }

@@ -312,9 +312,12 @@ dependencies = [
 name = "sylva_lod"
 version = "0.0.1"
 dependencies = [
+ "dapple_encode",
+ "dapple_raster",
  "exedra_mesh",
  "glam",
  "libm",
+ "sylva_bake",
  "sylva_foliage",
  "sylva_mesh",
  "sylva_skeleton",

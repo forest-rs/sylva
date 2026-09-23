@@ -22,14 +22,28 @@
 //! swap them. Each level also carries the screen-size threshold and
 //! crossfade band a renderer switches on, and a report of what it holds.
 //!
-//! Cluster cards and impostor levels are later additions to the chain.
+//! Coarse levels can replace leaves with [`ClusterCards`]: every branch
+//! subtree of one order becomes a few crossed quads sampling an atlas of
+//! baked exemplar clusters ([`bake_clusters`]), and that order's bark is
+//! pruned, because the cards carry it. The chain can end in an [`Impostor`],
+//! crossed vertical billboards of the whole tree ([`bake_impostor`]).
+//! [`build_lods`] returns the levels and impostor as geometry and views;
+//! baking, which needs the bark textures, is a separate step.
 
 #![no_std]
 
 extern crate alloc;
 
+mod bake;
+mod clusters;
+mod impostor;
+
 use alloc::vec::Vec;
 use core::fmt;
+
+pub use bake::{Atlas, AtlasSettings, CardMaterials, bake_clusters, bake_impostor};
+pub use clusters::{AtlasLayout, ClusterCard, ClusterCards, ClusterVariant, Clusters};
+pub use impostor::{Impostor, ImpostorPolicy};
 
 use exedra_mesh::Mesh;
 use sylva_foliage::{Foliage, FoliageError, LeafInstance, LeafShape, card_mesh, leaf_mesh};
@@ -67,8 +81,11 @@ pub struct LodLevel {
     pub min_branch_radius: f32,
     /// Fraction of leaves kept, in `(0, 1]`.
     pub leaf_fraction: f32,
-    /// Leaf geometry.
+    /// Leaf geometry for leaves not in a cluster.
     pub leaf_detail: LeafDetail,
+    /// Cluster cards replacing the leaves (and bark) of every branch subtree
+    /// of one order; `None` draws every kept leaf.
+    pub clusters: Option<ClusterCards>,
 }
 
 /// An ordered chain of levels, finest first.
@@ -78,11 +95,14 @@ pub struct LodPolicy {
     pub levels: Vec<LodLevel>,
     /// Seed for the keyed leaf subsets.
     pub seed: u64,
+    /// The billboard impostor ending the chain, if any.
+    pub impostor: Option<ImpostorPolicy>,
 }
 
 impl Default for LodPolicy {
-    /// Four levels for a broadleaf: full detail, a lighter mesh, a coarse
-    /// mesh with leaf cards, and a sparse card crown.
+    /// Four levels for a broadleaf, then an impostor: full detail, a lighter
+    /// mesh, coarse bark with a card per twig cluster, and scaffold bark with
+    /// a card per branch cluster.
     fn default() -> Self {
         let base = MeshParams::default();
         let rings = |segments_per_metre, min_segments, max_segments| RingResolution {
@@ -105,6 +125,7 @@ impl Default for LodPolicy {
                     min_branch_radius: 0.0,
                     leaf_fraction: 1.0,
                     leaf_detail: LeafDetail::Mesh { stations: 32 },
+                    clusters: None,
                 },
                 LodLevel {
                     screen_size: 0.25,
@@ -114,6 +135,7 @@ impl Default for LodPolicy {
                     min_branch_radius: 0.006,
                     leaf_fraction: 0.6,
                     leaf_detail: LeafDetail::Mesh { stations: 8 },
+                    clusters: None,
                 },
                 LodLevel {
                     screen_size: 0.1,
@@ -123,6 +145,11 @@ impl Default for LodPolicy {
                     min_branch_radius: 0.015,
                     leaf_fraction: 0.3,
                     leaf_detail: LeafDetail::Card,
+                    clusters: Some(ClusterCards {
+                        root_order: 3,
+                        variants: 8,
+                        planes: 2,
+                    }),
                 },
                 LodLevel {
                     screen_size: 0.04,
@@ -132,9 +159,15 @@ impl Default for LodPolicy {
                     min_branch_radius: 0.04,
                     leaf_fraction: 0.12,
                     leaf_detail: LeafDetail::Card,
+                    clusters: Some(ClusterCards {
+                        root_order: 2,
+                        variants: 4,
+                        planes: 2,
+                    }),
                 },
             ],
             seed: 0,
+            impostor: Some(ImpostorPolicy::default()),
         }
     }
 }
@@ -152,13 +185,19 @@ pub struct LodReport {
     pub leaves: u64,
     /// Leaf triangles over all kept leaves.
     pub leaf_triangles: u64,
+    /// Cluster cards.
+    pub cluster_cards: u64,
+    /// Leaves standing in a cluster card instead of drawn.
+    pub clustered_leaves: u64,
+    /// Card triangles: two per plane per card.
+    pub card_triangles: u64,
 }
 
 impl LodReport {
-    /// Bark and leaf triangles together.
+    /// Bark, leaf and card triangles together.
     #[must_use]
     pub fn triangles(&self) -> u64 {
-        self.bark_triangles + self.leaf_triangles
+        self.bark_triangles + self.leaf_triangles + self.card_triangles
     }
 }
 
@@ -171,10 +210,21 @@ pub struct LodMesh {
     pub bark: BarkMesh,
     /// One leaf template per foliage template, at this level's detail.
     pub templates: Vec<Mesh>,
-    /// Kept leaves, rescaled to preserve leaf area.
+    /// Kept leaves outside clusters, rescaled to preserve leaf area.
     pub leaves: Vec<LeafInstance>,
+    /// The level's cluster cards, when it has any.
+    pub clusters: Option<Clusters>,
     /// Deterministic counts.
     pub report: LodReport,
+}
+
+/// A built chain: levels finest first, then the impostor.
+#[derive(Clone, Debug)]
+pub struct LodChain {
+    /// The levels.
+    pub levels: Vec<LodMesh>,
+    /// The impostor, when the policy asks for one.
+    pub impostor: Option<Impostor>,
 }
 
 /// Why a chain could not be built.
@@ -195,6 +245,11 @@ pub enum LodError {
     Mesh(MeshError),
     /// Meshing a leaf template failed.
     Foliage(FoliageError),
+    /// The impostor policy is out of range or not coarser than the last
+    /// level.
+    Impostor(&'static str),
+    /// Baking an atlas failed.
+    Bake(&'static str),
 }
 
 impl fmt::Display for LodError {
@@ -204,6 +259,8 @@ impl fmt::Display for LodError {
             Self::Skeleton(error) => write!(f, "pruned skeleton: {error}"),
             Self::Mesh(error) => write!(f, "LOD bark: {error}"),
             Self::Foliage(error) => write!(f, "LOD leaves: {error}"),
+            Self::Impostor(name) => write!(f, "impostor: {name} is out of range"),
+            Self::Bake(what) => write!(f, "atlas bake: {what}"),
         }
     }
 }
@@ -242,6 +299,10 @@ impl LodPolicy {
             if let LeafDetail::Mesh { stations } = level.leaf_detail {
                 bad((3..=1024).contains(&stations), "leaf_detail")?;
             }
+            if let Some(clusters) = level.clusters {
+                bad((1..=64).contains(&clusters.variants), "clusters.variants")?;
+                bad((1..=3).contains(&clusters.planes), "clusters.planes")?;
+            }
             if let Some(prev) = previous {
                 bad(level.screen_size < prev.screen_size, "screen_size order")?;
                 bad(
@@ -251,14 +312,38 @@ impl LodPolicy {
             }
             previous = Some(level);
         }
+        if let Some(impostor) = self.impostor {
+            let bad = |ok: bool, name| {
+                if ok {
+                    Ok(())
+                } else {
+                    Err(LodError::Impostor(name))
+                }
+            };
+            bad(
+                impostor.screen_size.is_finite() && impostor.screen_size > 0.0,
+                "screen_size",
+            )?;
+            bad(
+                previous.is_none_or(|last| impostor.screen_size < last.screen_size),
+                "screen_size order",
+            )?;
+            bad((0.0..1.0).contains(&impostor.crossfade), "crossfade")?;
+            bad((1..=8).contains(&impostor.planes), "planes")?;
+        }
         Ok(())
     }
 }
 
 /// A copy of `skeleton` without the branches whose base radius is below
-/// `min_radius`, nor their descendants; sites are dropped (leaves are
+/// `min_radius`, nor those of order `card_order` or above (their cluster
+/// cards carry them), nor their descendants; sites are dropped (leaves are
 /// instances already).
-fn pruned(skeleton: &Skeleton, min_radius: f32) -> Result<(Skeleton, u64), LodError> {
+fn pruned(
+    skeleton: &Skeleton,
+    min_radius: f32,
+    card_order: Option<u32>,
+) -> Result<(Skeleton, u64), LodError> {
     let mut out = Skeleton::new();
     let mut kept = alloc::vec![false; skeleton.branches().len()];
     let mut dropped = 0;
@@ -266,7 +351,8 @@ fn pruned(skeleton: &Skeleton, min_radius: f32) -> Result<(Skeleton, u64), LodEr
         let parent_kept = branch
             .parent
             .is_none_or(|a| skeleton.index_of(a.parent).is_some_and(|p| kept[p]));
-        let thick = branch.nodes[0].radius >= min_radius;
+        let thick = branch.nodes[0].radius >= min_radius
+            && card_order.is_none_or(|order| branch.order < order);
         if parent_kept && (thick || branch.parent.is_none()) {
             kept[index] = true;
             out.push_branch(Branch::clone(branch))
@@ -285,13 +371,14 @@ fn pruned(skeleton: &Skeleton, min_radius: f32) -> Result<(Skeleton, u64), LodEr
 ///
 /// # Errors
 ///
-/// [`LodError::Params`] for an invalid policy, or a meshing error.
+/// [`LodError::Params`] or [`LodError::Impostor`] for an invalid policy, or
+/// a meshing error.
 pub fn build_lods(
     skeleton: &Skeleton,
     foliage: &Foliage,
     base: &MeshParams,
     policy: &LodPolicy,
-) -> Result<Vec<LodMesh>, LodError> {
+) -> Result<LodChain, LodError> {
     policy.validate()?;
     // One keyed value per leaf, shared by every level, so subsets nest.
     let keep: Vec<f32> = foliage
@@ -309,13 +396,24 @@ pub fn build_lods(
         .collect();
     let mut chain = Vec::with_capacity(policy.levels.len());
     for level in &policy.levels {
-        let (skeleton, pruned_branches) = pruned(skeleton, level.min_branch_radius)?;
+        let (clusters, clustered) = match level.clusters {
+            Some(params) => {
+                let (clusters, clustered) = clusters::build_clusters(skeleton, foliage, params);
+                (Some(clusters), clustered)
+            }
+            None => (None, alloc::vec![false; foliage.instances.len()]),
+        };
+        let (pruned_skeleton, pruned_branches) = pruned(
+            skeleton,
+            level.min_branch_radius,
+            level.clusters.map(|c| c.root_order),
+        )?;
         let params = MeshParams {
             rings: level.rings,
             stations: level.stations,
             ..*base
         };
-        let bark = mesh_skeleton(&skeleton, &params).map_err(LodError::Mesh)?;
+        let bark = mesh_skeleton(&pruned_skeleton, &params).map_err(LodError::Mesh)?;
         let templates: Vec<Mesh> = foliage
             .templates
             .iter()
@@ -341,8 +439,9 @@ pub fn build_lods(
             .instances
             .iter()
             .zip(&keep)
-            .filter(|&(_, &k)| k < level.leaf_fraction)
-            .map(|(leaf, _)| LeafInstance {
+            .zip(&clustered)
+            .filter(|&((_, &k), &c)| k < level.leaf_fraction && !c)
+            .map(|((leaf, _), _)| LeafInstance {
                 scale: leaf.scale * grow,
                 ..*leaf
             })
@@ -356,16 +455,27 @@ pub fn build_lods(
                 .iter()
                 .map(|l| template_triangles[l.template as usize])
                 .sum(),
+            cluster_cards: clusters.as_ref().map_or(0, |c| c.cards.len() as u64),
+            clustered_leaves: clustered.iter().filter(|&&c| c).count() as u64,
+            card_triangles: clusters
+                .as_ref()
+                .map_or(0, |c| 2 * u64::from(c.params.planes) * c.cards.len() as u64),
         };
         chain.push(LodMesh {
             level: *level,
             bark,
             templates,
             leaves,
+            clusters,
             report,
         });
     }
-    Ok(chain)
+    Ok(LodChain {
+        levels: chain,
+        impostor: policy
+            .impostor
+            .map(|impostor| Impostor::fit(skeleton, foliage, impostor)),
+    })
 }
 
 #[cfg(test)]

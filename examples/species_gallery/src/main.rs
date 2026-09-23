@@ -33,8 +33,11 @@ use std::time::Instant;
 
 use dapple_encode::{Filter, PackSettings, Profile, ktx2, pack};
 use exedra_mesh::{ExtractAttribute, ExtractParams, NormalsSource, TriMesh};
+use sylva_bake::BakeMaterial;
 use sylva_foliage::{Foliage, leaf_mask, place_leaves};
-use sylva_lod::{LodPolicy, build_lods};
+use sylva_lod::{
+    Atlas, AtlasSettings, CardMaterials, LodPolicy, bake_clusters, bake_impostor, build_lods,
+};
 use sylva_mesh::{BRANCH_LAYER, MeshParams, mesh_skeleton};
 use sylva_texture::{BarkRecipe, LeafRecipe, bark, leaf};
 
@@ -77,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let place_us = placed.elapsed().as_micros();
                 std::fs::write(dir.join("leaves.obj"), leaves_obj(&foliage)?)?;
                 write_mask(&dir.join("leaf-mask.png"), &foliage)?;
-                let lods = write_lods(&dir, seed, &grown.skeleton, &foliage)?;
+                let lods = write_lods(&dir, seed, &grown.skeleton, &foliage, &tri, &textures)?;
                 let card = card::bake_twig_card(
                     &dir.join("twig-card"),
                     &grown.skeleton,
@@ -187,12 +190,17 @@ fn instances_obj(
 }
 
 /// Builds the LOD chain and returns a stats fragment; seed 1 also writes
-/// each level as `lods/lod<n>-bark.obj` and `lods/lod<n>-leaves.obj`.
+/// each level as `lods/lod<n>-bark.obj` and `lods/lod<n>-leaves.obj`, its
+/// cluster cards as `lods/lod<n>-cards.obj` with their baked atlas in
+/// `lods/lod<n>-cards/`, and the impostor as `lods/impostor.obj` with
+/// `lods/impostor/`.
 fn write_lods(
     dir: &std::path::Path,
     seed: u64,
     skeleton: &sylva_skeleton::Skeleton,
     foliage: &Foliage,
+    bark: &TriMesh,
+    textures: &card::Textures,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let started = Instant::now();
     let chain = build_lods(
@@ -202,22 +210,60 @@ fn write_lods(
         &LodPolicy::default(),
     )?;
     let elapsed = started.elapsed();
+    let materials = CardMaterials {
+        bark: BakeMaterial {
+            base_color: Some(&textures.bark),
+            ..BakeMaterial::default()
+        },
+        leaf: BakeMaterial {
+            base_color: textures.leaf.as_ref(),
+            ..BakeMaterial::default()
+        },
+    };
+    let out = dir.join("lods");
     let mut levels = Vec::new();
-    for (n, lod) in chain.iter().enumerate() {
+    for (n, lod) in chain.levels.iter().enumerate() {
         let r = lod.report;
         levels.push(format!(
             "{{\"screen_size\":{},\"branches\":{},\"pruned\":{},\"bark_triangles\":{},\
-             \"leaves\":{},\"leaf_triangles\":{},\"triangles\":{}}}",
+             \"leaves\":{},\"leaf_triangles\":{},\"cluster_cards\":{},\"clustered_leaves\":{},\
+             \"card_triangles\":{},\"triangles\":{}}}",
             lod.level.screen_size,
             r.branches,
             r.pruned_branches,
             r.bark_triangles,
             r.leaves,
             r.leaf_triangles,
+            r.cluster_cards,
+            r.clustered_leaves,
+            r.card_triangles,
             r.triangles()
         ));
+        if seed == 1
+            && let Some(clusters) = &lod.clusters
+        {
+            let baked = Instant::now();
+            let atlas = bake_clusters(
+                skeleton,
+                bark,
+                foliage,
+                clusters,
+                &materials,
+                &AtlasSettings::default(),
+            )?;
+            println!(
+                "lod{n}: {} cluster variants baked in {} ms",
+                clusters.variants.len(),
+                baked.elapsed().as_millis()
+            );
+            std::fs::create_dir_all(&out)?;
+            write_atlas(&out.join(format!("lod{n}-cards")), &atlas)?;
+            std::fs::write(
+                out.join(format!("lod{n}-cards.obj")),
+                bark_obj(&clusters.geometry())?,
+            )?;
+        }
         if seed == 1 {
-            let out = dir.join("lods");
             std::fs::create_dir_all(&out)?;
             let (tri, _) = lod.bark.mesh.to_trimesh(&ExtractParams {
                 normals: NormalsSource::CustomOnly,
@@ -231,11 +277,61 @@ fn write_lods(
             )?;
         }
     }
+    if seed == 1
+        && let Some(impostor) = &chain.impostor
+    {
+        let baked = Instant::now();
+        let atlas = bake_impostor(
+            bark,
+            foliage,
+            impostor,
+            &materials,
+            &AtlasSettings {
+                cell: [512, 512],
+                samples: 4,
+            },
+        )?;
+        println!(
+            "impostor: {} planes baked in {} ms",
+            impostor.views.len(),
+            baked.elapsed().as_millis()
+        );
+        write_atlas(&out.join("impostor"), &atlas)?;
+        std::fs::write(out.join("impostor.obj"), bark_obj(&impostor.geometry())?)?;
+    }
     Ok(format!(
-        ",\"lods\":{{\"build_us\":{},\"levels\":[{}]}}",
+        ",\"lods\":{{\"build_us\":{},\"levels\":[{}],\"impostor_planes\":{}}}",
         elapsed.as_micros(),
-        levels.join(",")
+        levels.join(","),
+        chain.impostor.as_ref().map_or(0, |i| i.views.len())
     ))
+}
+
+/// Packs a baked atlas for glTF (colour with coverage alpha, normals) and
+/// writes PNG and KTX2, plus the depth map.
+fn write_atlas(dir: &std::path::Path, atlas: &Atlas) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(dir)?;
+    let bundle = pack(
+        &atlas.baked.maps(),
+        Profile::Gltf,
+        &PackSettings {
+            filter: Filter::Kaiser,
+            alpha_cutoff: Some(0.5),
+            ..PackSettings::default()
+        },
+    )?;
+    for texture in &bundle.textures {
+        std::fs::write(
+            dir.join(format!("{}.png", texture.name)),
+            dapple_encode::png::write(texture)?,
+        )?;
+        std::fs::write(
+            dir.join(format!("{}.ktx2", texture.name)),
+            ktx2::write(texture),
+        )?;
+    }
+    card::write_gray(&dir.join("depth.png"), &atlas.baked.depth)?;
+    Ok(())
 }
 
 /// Writes the first template's coverage mask as an 8-bit grayscale PNG.

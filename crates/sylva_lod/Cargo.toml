@@ -11,9 +11,12 @@ categories = ["graphics", "game-development", "no-std"]
 publish = false
 
 [dependencies]
+dapple_encode.workspace = true
+dapple_raster.workspace = true
 exedra_mesh.workspace = true
 glam.workspace = true
 libm.workspace = true
+sylva_bake.workspace = true
 sylva_foliage.workspace = true
 sylva_mesh.workspace = true
 sylva_skeleton.workspace = true
