@@ -5,6 +5,7 @@ members = [
     "crates/sylva_skeleton",
     "crates/sylva_species",
     "examples/skeleton_dump",
+    "examples/species_gallery",
 ]
 
 [workspace.package]

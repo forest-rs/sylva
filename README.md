@@ -11,11 +11,19 @@ The design lives in [`docs/design.md`](docs/design.md).
 - **[sylva_skeleton](crates/sylva_skeleton/)**: the skeleton IR shared by every
   growth backend. Branches, stable path-hashed IDs, keyed randomness, and the
   shared pipe-model radius and rotation-minimizing frame passes.
+- **[sylva_grow](crates/sylva_grow/)**: hierarchical rule-based growth. A trunk
+  and per-level branching (count, phyllotaxis, angle and length curves, bending,
+  tropisms, crown-envelope pruning) grown into the skeleton IR from a seed.
+- **[sylva_species](crates/sylva_species/)**: species descriptions as data
+  (with the `serde` feature), naming a growth backend and its parameters.
 
 Examples live in `examples/`:
 
 - **[skeleton_dump](examples/skeleton_dump/)**: writes a debug OBJ of a small
   generated skeleton and renders it with Blender for visual review.
+- **[species_gallery](examples/species_gallery/)**: grows the species presets in
+  `presets/` (an oak so far) for several seeds and dumps each for the same
+  Blender review script.
 
 ## Minimum supported Rust version
 

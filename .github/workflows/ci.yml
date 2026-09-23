@@ -11,16 +11,19 @@ env:
   RUST_MIN_VER: "1.92"
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
-  RUST_MIN_VER_PKGS: "-p sylva_skeleton"
+  RUST_MIN_VER_PKGS: "-p sylva_skeleton -p sylva_grow -p sylva_species"
   # List of packages that don't support `no_std`.
   RUST_STD_ONLY_PKGS: >-
     --exclude skeleton_dump
+    --exclude species_gallery
   # List of packages that don't support wasip1
   RUST_NO_WASIP1_PKGS: >-
     --exclude skeleton_dump
+    --exclude species_gallery
   # List of packages that don't support wasm32
   RUST_NO_WASM_PKGS: >-
     --exclude skeleton_dump
+    --exclude species_gallery
   # List of features that depend on the standard library and will be excluded from no_std checks.
   FEATURES_DEPENDING_ON_STD: "std,default"
 
