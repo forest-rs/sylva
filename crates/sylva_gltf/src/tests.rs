@@ -51,6 +51,9 @@ fn quad(branch: u32) -> Mesh {
 fn asset() -> TreeAsset {
     let mut leaf = Parameters::<LinearSrgb>::DEFAULT;
     leaf.base_color = OpaqueColor::new([0.2, 0.5, 0.1]);
+    leaf.geometry_thin_walled = true;
+    leaf.subsurface_weight = 0.4;
+    leaf.subsurface_color = OpaqueColor::new([0.2, 0.36, 0.05]);
     TreeAsset {
         lods: vec![AssetLod {
             screen_size: 0.5,
@@ -96,9 +99,11 @@ fn levels_export_with_tangents_branches_and_projected_materials() {
             base_color: Some(PNG),
             orm: Some(PNG),
             normal: Some(PNG),
+            ..MaterialTextures::default()
         },
         MaterialTextures {
             base_color: Some(PNG),
+            diffuse_transmission: Some(PNG),
             ..MaterialTextures::default()
         },
     ];
@@ -135,6 +140,35 @@ fn levels_export_with_tangents_branches_and_projected_materials() {
         leaf.get("normalTexture").is_none(),
         "unbound slots stay unbound"
     );
+    // The thin-walled leaf's translucency: the texture carries weight and
+    // tint, so the factors are 1.
+    let transmission = &leaf["extensions"]["KHR_materials_diffuse_transmission"];
+    assert_eq!(transmission["diffuseTransmissionFactor"], 1.0);
+    assert!(transmission["diffuseTransmissionTexture"].is_object());
+    assert!(transmission["diffuseTransmissionColorTexture"].is_object());
+    assert!(
+        bark.get("extensions").is_none(),
+        "opaque bark transmits nothing"
+    );
+    let used = json["extensionsUsed"].as_array().expect("extensions used");
+    assert!(
+        used.iter()
+            .any(|e| e == "KHR_materials_diffuse_transmission")
+    );
+
+    // Without a texture, the factors carry the OpenPBR values.
+    let untextured = [MaterialTextures::default(); 2];
+    let bare = export_lod_glb(&asset, 0, &untextured).expect("export");
+    let bare = GlbDocument::parse(&bare.bytes)
+        .expect("parse")
+        .json()
+        .clone();
+    let transmission = &bare["materials"][1]["extensions"]["KHR_materials_diffuse_transmission"];
+    let factor = transmission["diffuseTransmissionFactor"]
+        .as_f64()
+        .expect("factor");
+    assert!((factor - 0.4).abs() < 1e-6);
+    assert!(transmission.get("diffuseTransmissionTexture").is_none());
     // One shared image serves every slot that uses it.
     assert_eq!(glb.stats.images, 1);
 }

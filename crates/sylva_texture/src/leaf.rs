@@ -31,9 +31,14 @@ pub struct LeafRecipe {
     pub green: [f32; 3],
     /// Linear vein colour.
     pub vein: [f32; 3],
-    /// Linear colour of light transmitted through the blade, for an
-    /// OpenPBR `subsurface_color` or glTF diffuse-transmission tint.
+    /// Linear colour of light transmitted through the blade: OpenPBR
+    /// `subsurface_color` on a thin-walled material, glTF's
+    /// diffuse-transmission colour.
     pub translucent: [f32; 3],
+    /// Share of light scattered through the blade, in `[0, 1]`: OpenPBR
+    /// `subsurface_weight` on a thin-walled material, glTF's
+    /// diffuse-transmission factor. Veins transmit half as much.
+    pub translucency: f32,
     /// Midrib width, as a fraction of the blade length; secondary veins are
     /// half as wide.
     pub vein_width: f32,
@@ -56,6 +61,7 @@ impl Default for LeafRecipe {
             green: [0.045, 0.11, 0.022],
             vein: [0.12, 0.2, 0.06],
             translucent: [0.2, 0.36, 0.05],
+            translucency: 0.4,
             vein_width: 0.012,
             vein_relief: 0.0004,
             mottle: 0.15,
@@ -68,12 +74,10 @@ impl Default for LeafRecipe {
 /// A leaf material set.
 #[derive(Clone, Debug)]
 pub struct LeafSet {
-    /// Opacity (the blade's coverage), base colour, normals and roughness.
+    /// Opacity (the blade's coverage), base colour, normals, roughness, and
+    /// thin-walled translucency as `subsurface_weight` and
+    /// `subsurface_color`.
     pub maps: MaterialMaps,
-    /// Transmitted colour, 3 channels, clamped at the texture edges. Dapple's
-    /// packing profiles carry no transmission slot yet, so this map travels
-    /// alongside the packed set.
-    pub translucency: Image,
     /// Content fingerprint of the mottling program.
     pub fingerprint: Fingerprint,
 }
@@ -91,6 +95,7 @@ impl LeafRecipe {
             .validate()
             .map_err(|_| TextureError::Params { name: "shape" })?;
         bad((8..=8192).contains(&self.size), "size")?;
+        bad((0.0..=1.0).contains(&self.translucency), "translucency")?;
         bad(
             self.vein_width.is_finite() && self.vein_width > 0.0 && self.vein_width < 0.2,
             "vein_width",
@@ -203,15 +208,17 @@ pub fn leaf(recipe: &LeafRecipe) -> Result<LeafSet, TextureError> {
         .map(|&c| f32::from(c) / 255.0)
         .collect();
     let mut base_color = Vec::with_capacity(texels * 3);
-    let mut translucency = Vec::with_capacity(texels * 3);
+    let mut subsurface_color = Vec::with_capacity(texels * 3);
+    let mut subsurface_weight = Vec::with_capacity(texels);
     for (i, &v) in vein.iter().enumerate() {
         let m = 1.0 + recipe.mottle * mottle.values()[i];
         for c in 0..3 {
             base_color
                 .push((recipe.green[c] * m + (recipe.vein[c] - recipe.green[c]) * v).max(0.0));
-            // Veins are thicker and block more transmitted light.
-            translucency.push((recipe.translucent[c] * m * (1.0 - 0.5 * v)).max(0.0));
+            subsurface_color.push((recipe.translucent[c] * m).clamp(0.0, 1.0));
         }
+        // Veins are thicker and block more transmitted light.
+        subsurface_weight.push((recipe.translucency * (1.0 - 0.5 * v)).clamp(0.0, 1.0));
     }
     let image = |channels, values| {
         Image::new(n, n, channels, Edge::Clamp, values).map_err(TextureError::Encode)
@@ -221,11 +228,9 @@ pub fn leaf(recipe: &LeafRecipe) -> Result<LeafSet, TextureError> {
         opacity: Some(image(1, opacity)?),
         normal: Some(Image::from(&normals)),
         specular_roughness: Some(image(1, alloc::vec![recipe.roughness; texels])?),
+        subsurface_weight: Some(image(1, subsurface_weight)?),
+        subsurface_color: Some(image(3, subsurface_color)?),
         ..MaterialMaps::default()
     };
-    Ok(LeafSet {
-        maps,
-        translucency: image(3, translucency)?,
-        fingerprint,
-    })
+    Ok(LeafSet { maps, fingerprint })
 }

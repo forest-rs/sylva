@@ -77,7 +77,30 @@ fn leaf_opacity_is_the_leaf_shapes_own_mask() {
         at(32, 32) > at(20, 32),
         "midrib is lighter than the blade beside it"
     );
-    assert_eq!(set.translucency.channels(), 3);
+    // Thin-walled translucency: the blade transmits, veins half as much.
+    let weight = set
+        .maps
+        .subsurface_weight
+        .as_ref()
+        .expect("weight")
+        .values();
+    assert!(
+        weight
+            .iter()
+            .all(|w| (0.0..=recipe.translucency).contains(w))
+    );
+    assert!((weight[32 * 64 + 20] - recipe.translucency).abs() < 0.05);
+    assert!(
+        weight[32 * 64 + 32] < weight[32 * 64 + 20],
+        "the midrib transmits less"
+    );
+    assert_eq!(
+        set.maps.subsurface_color.as_ref().expect("tint").channels(),
+        3
+    );
+    // glTF packs it as one diffuse-transmission texture.
+    let gltf = pack(&set.maps, Profile::Gltf, &PackSettings::default()).expect("pack");
+    assert!(gltf.texture("diffuse_transmission").is_some());
     assert_eq!(leaf(&recipe).expect("again").fingerprint, set.fingerprint);
     let bundle = pack(
         &set.maps,
@@ -108,5 +131,15 @@ fn invalid_recipes_are_refused() {
         })
         .err(),
         Some(TextureError::Params { name: "size" })
+    );
+    assert_eq!(
+        leaf(&LeafRecipe {
+            translucency: 1.5,
+            ..LeafRecipe::default()
+        })
+        .err(),
+        Some(TextureError::Params {
+            name: "translucency"
+        })
     );
 }

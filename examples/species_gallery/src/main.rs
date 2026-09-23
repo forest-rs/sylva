@@ -31,9 +31,10 @@
 //!
 //! Per species, `textures/<species>-bark` and `textures/<species>-leaf` hold
 //! the generated material sets, packed for `lightweald` and `gltf`: KTX2
-//! files with full mip chains and PNG images of level 0. The leaf's transmitted
-//! colour is `translucency.png`, since dapple's profiles carry no
-//! transmission slot yet.
+//! files with full mip chains and PNG images of level 0. The glTF leaf set
+//! includes `diffuse_transmission` (tint RGB, weight A), which the GLBs bind
+//! through `KHR_materials_diffuse_transmission`; Lightweald has no subsurface
+//! slot yet.
 
 mod card;
 
@@ -407,23 +408,27 @@ fn write_glbs(
         .collect();
     let read =
         |set: &std::path::Path, name: &str| std::fs::read(set.join(format!("{name}.png"))).ok();
-    let images: Vec<[Option<Vec<u8>>; 3]> = sets
+    let images: Vec<[Option<Vec<u8>>; 4]> = sets
         .iter()
         .map(|set| {
             [
                 read(set, "base_color"),
                 read(set, "orm"),
                 read(set, "normal"),
+                read(set, "diffuse_transmission"),
             ]
         })
         .collect();
     let textures: Vec<MaterialTextures<'_>> = images
         .iter()
-        .map(|[base_color, orm, normal]| MaterialTextures {
-            base_color: base_color.as_deref(),
-            orm: orm.as_deref(),
-            normal: normal.as_deref(),
-        })
+        .map(
+            |[base_color, orm, normal, diffuse_transmission]| MaterialTextures {
+                base_color: base_color.as_deref(),
+                orm: orm.as_deref(),
+                normal: normal.as_deref(),
+                diffuse_transmission: diffuse_transmission.as_deref(),
+            },
+        )
         .collect();
     let out = dir.join("glb");
     std::fs::create_dir_all(&out)?;
@@ -495,21 +500,17 @@ fn write_textures(
             .expect("bark sets have colour"),
         leaf: None,
     };
-    let mut sets = vec![(format!("{}-bark", species.name), bark_set.maps, None)];
+    let mut sets = vec![(format!("{}-bark", species.name), bark_set.maps)];
     if let Some(foliage) = &species.foliage {
         let leaf_set = leaf(&LeafRecipe {
             shape: foliage.shape,
             ..LeafRecipe::default()
         })?;
         textures.leaf = leaf_set.maps.base_color.clone();
-        sets.push((
-            format!("{}-leaf", species.name),
-            leaf_set.maps,
-            Some(leaf_set.translucency),
-        ));
+        sets.push((format!("{}-leaf", species.name), leaf_set.maps));
     }
     let generated = started.elapsed();
-    for (name, maps, translucency) in &sets {
+    for (name, maps) in &sets {
         for (profile, label) in [(Profile::Lightweald, "lightweald"), (Profile::Gltf, "gltf")] {
             let settings = PackSettings {
                 filter: Filter::Kaiser,
@@ -529,9 +530,6 @@ fn write_textures(
                     dapple_encode::png::write(texture)?,
                 )?;
             }
-            if let Some(image) = translucency {
-                write_srgb_png(&out.join("translucency.png"), image)?;
-            }
         }
     }
     println!(
@@ -540,37 +538,6 @@ fn write_textures(
         generated.as_millis()
     );
     Ok(textures)
-}
-
-/// Writes a 3-channel linear image as an 8-bit sRGB PNG.
-fn write_srgb_png(
-    path: &std::path::Path,
-    image: &dapple_encode::Image,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let file = std::fs::File::create(path)?;
-    let mut encoder =
-        png::Encoder::new(std::io::BufWriter::new(file), image.width(), image.height());
-    encoder.set_color(png::ColorType::Rgb);
-    encoder.set_depth(png::BitDepth::Eight);
-    // Row 0 (`v = 0`) is the top row, as in dapple's PNG output.
-    let mut data = Vec::with_capacity(image.values().len());
-    {
-        data.extend(image.values().iter().map(|&v| {
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "a clamped unit value scaled to a byte"
-            )]
-            let byte = libm_round(dapple_encode::linear_to_srgb(v) * 255.0) as u8;
-            byte
-        }));
-    }
-    encoder.write_header()?.write_image_data(&data)?;
-    Ok(())
-}
-
-fn libm_round(v: f32) -> f32 {
-    v.round()
 }
 
 #[cfg(test)]

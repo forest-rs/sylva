@@ -22,12 +22,13 @@
 //! | `normalTexture` | its normal texture (tangent space, +Y up) |
 //! | `alphaMode`, `alphaCutoff` | `MASK` at [`TreeMaterial::alpha_cutoff`], else `OPAQUE` |
 //! | `doubleSided` | [`TreeMaterial::double_sided`] |
+//! | `KHR_materials_diffuse_transmission` | on a thin-walled material with `subsurface_weight > 0`: `diffuseTransmissionFactor` from `subsurface_weight`, `diffuseTransmissionColorFactor` from `subsurface_color`, and both textures from its diffuse-transmission texture (tint RGB, sRGB; weight A) |
 //!
-//! glTF multiplies factors by textures, so with an ORM texture bound the
-//! metallic and roughness factors are 1 and the texture carries the values.
-//! The projection is lossy: OpenPBR's thin-walled transmission, subsurface,
-//! coat and fuzz have no core glTF equivalent. Leaf translucency waits for
-//! `KHR_materials_diffuse_transmission` support in `exedra_gltf`.
+//! glTF multiplies factors by textures, so with an ORM or diffuse-transmission
+//! texture bound the matching factors are 1 and the texture carries the
+//! values. OpenPBR's thin-walled subsurface is what glTF's diffuse
+//! transmission models, so leaf translucency survives; volumetric
+//! subsurface, specular transmission, coat and fuzz do not.
 
 use std::fmt;
 
@@ -53,6 +54,9 @@ pub struct MaterialTextures<'a> {
     pub orm: Option<&'a [u8]>,
     /// Tangent-space normal, +Y up, linear.
     pub normal: Option<&'a [u8]>,
+    /// Diffuse transmission: tint in RGB (sRGB) and weight in A (linear),
+    /// as dapple's glTF profile packs a thin-walled subsurface.
+    pub diffuse_transmission: Option<&'a [u8]>,
 }
 
 /// Why an export failed.
@@ -93,7 +97,7 @@ impl fmt::Display for ExportError {
 impl std::error::Error for ExportError {}
 
 /// Texture slots per material, in resolver index order.
-const SLOTS: u32 = 3;
+const SLOTS: u32 = 4;
 
 struct Resolver<'a> {
     asset: &'a TreeAsset,
@@ -134,6 +138,20 @@ impl Resolver<'_> {
             None => out["alphaMode"] = json!("OPAQUE"),
         }
         out["doubleSided"] = json!(material.double_sided);
+        if p.geometry_thin_walled && p.subsurface_weight > 0.0 {
+            let [r, g, b] = p.subsurface_color.components;
+            let mut transmission = json!({
+                "diffuseTransmissionFactor": p.subsurface_weight,
+                "diffuseTransmissionColorFactor": [r, g, b],
+            });
+            if textures.diffuse_transmission.is_some() {
+                transmission["diffuseTransmissionFactor"] = json!(1.0);
+                transmission["diffuseTransmissionColorFactor"] = json!([1.0, 1.0, 1.0]);
+                transmission["diffuseTransmissionTexture"] = json!({ "index": base + 3 });
+                transmission["diffuseTransmissionColorTexture"] = json!({ "index": base + 3 });
+            }
+            out["extensions"] = json!({ "KHR_materials_diffuse_transmission": transmission });
+        }
         out
     }
 }
@@ -154,7 +172,8 @@ impl MaterialResolver for Resolver<'_> {
         let image = match index % SLOTS {
             0 => textures.base_color,
             1 => textures.orm,
-            _ => textures.normal,
+            2 => textures.normal,
+            _ => textures.diffuse_transmission,
         }?;
         Some(Texture {
             image,

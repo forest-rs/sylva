@@ -92,7 +92,8 @@ pub struct TreeMaterials {
 }
 
 impl Default for TreeMaterials {
-    /// Rough grey-brown bark and a thin-walled, slightly glossy green leaf;
+    /// Rough grey-brown bark and a thin-walled, slightly glossy green leaf
+    /// that scatters 40% of the light through its blade with a green tint;
     /// both are multiplied by their textures where exporters bind them.
     fn default() -> Self {
         let mut bark = Parameters::<LinearSrgb>::DEFAULT;
@@ -102,6 +103,8 @@ impl Default for TreeMaterials {
         leaf.base_color = OpaqueColor::new([1.0, 1.0, 1.0]);
         leaf.specular_roughness = 0.5;
         leaf.geometry_thin_walled = true;
+        leaf.subsurface_weight = 0.4;
+        leaf.subsurface_color = OpaqueColor::new([0.2, 0.36, 0.05]);
         Self {
             bark,
             leaf,
