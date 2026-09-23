@@ -1,0 +1,24 @@
+[package]
+name = "sylva_foliage"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Leaf shapes, leaf meshes, cards and masks, and leaf placement for sylva skeletons"
+keywords = ["procedural", "tree", "vegetation", "foliage", "no_std"]
+categories = ["graphics", "game-development", "no-std"]
+publish = false
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+exedra_mesh.workspace = true
+glam.workspace = true
+libm.workspace = true
+serde = { optional = true, workspace = true }
+sylva_skeleton.workspace = true
+
+[lints]
+workspace = true

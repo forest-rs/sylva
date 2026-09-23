@@ -5,9 +5,9 @@
 //!
 //! A [`Species`] names a tree and describes how it grows. It is data, not
 //! code: presets live as data files (with the `serde` feature) and a tree is
-//! `species.grow(seed)`. Bark, foliage, LOD and wind descriptions join the
-//! species as the stages that consume them land; until then growth is the
-//! whole description.
+//! `species.grow(seed)`. It carries growth and, optionally, foliage
+//! ([`FoliageParams`]); bark, LOD and wind descriptions join the species as
+//! the stages that consume them land.
 //!
 //! The growth description is backend-neutral at this level: [`Growth`] names
 //! the backend and carries its parameters, and everything downstream of the
@@ -27,6 +27,7 @@
 //!         radii: Radii::default(),
 //!         segment_length: 0.5,
 //!     }),
+//!     foliage: None,
 //! };
 //! let grown = species.grow(1)?;
 //! assert_eq!(grown.skeleton.branches().len(), 1);
@@ -39,6 +40,7 @@ extern crate alloc;
 
 use alloc::string::String;
 
+pub use sylva_foliage::FoliageParams;
 use sylva_grow::{GrowError, Grown, Hierarchy};
 
 /// A kind of tree.
@@ -49,6 +51,9 @@ pub struct Species {
     pub name: String,
     /// How the species grows.
     pub growth: Growth,
+    /// Leaves on the grown skeleton's sites; `None` for a bare tree.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub foliage: Option<FoliageParams>,
 }
 
 /// A growth backend and its parameters.

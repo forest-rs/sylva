@@ -10,9 +10,12 @@ publish = false
 
 [dependencies]
 exedra_mesh = { features = ["std"], workspace = true }
+png = "0.18.1"
 ron = "0.11.0"
 skeleton_dump = { path = "../skeleton_dump" }
+sylva_foliage.workspace = true
 sylva_mesh.workspace = true
+sylva_skeleton.workspace = true
 sylva_species = { features = ["serde"], workspace = true }
 
 [lints]

@@ -11,10 +11,11 @@ categories = ["graphics", "game-development", "no-std"]
 publish = false
 
 [features]
-serde = ["dep:serde", "sylva_grow/serde"]
+serde = ["dep:serde", "sylva_foliage/serde", "sylva_grow/serde"]
 
 [dependencies]
 serde = { optional = true, workspace = true }
+sylva_foliage.workspace = true
 sylva_grow.workspace = true
 
 [lints]

@@ -18,8 +18,13 @@ The design lives in [`docs/design.md`](docs/design.md).
   in an Exedra mesh, with curvature-adaptive rings, bark UVs of uniform texel
   density, embedded junction collars, root flare, authored normals, and a
   per-vertex branch index for provenance.
+- **[sylva_foliage](crates/sylva_foliage/)**: leaves. One contour per leaf
+  shape yields the full blade mesh, a card and its coverage mask in a shared
+  UV frame; keyed template variants are placed on skeleton sites as
+  instances with a canopy normal.
 - **[sylva_species](crates/sylva_species/)**: species descriptions as data
-  (with the `serde` feature), naming a growth backend and its parameters.
+  (with the `serde` feature), naming a growth backend and its parameters,
+  plus optional foliage.
 
 Examples live in `examples/`:
 
@@ -27,8 +32,9 @@ Examples live in `examples/`:
   generated skeleton and renders it with Blender for visual review.
 - **[species_gallery](examples/species_gallery/)**: grows the species presets in
   `presets/` (an oak so far) for several seeds, dumps each skeleton for the
-  same Blender review script, and meshes its bark (`bark.obj`), which
-  `tools/render_bark.py` renders with a UV grid.
+  same Blender review script, meshes its bark (`bark.obj`, rendered with a UV
+  grid by `tools/render_bark.py`), and places its leaves (`leaves.obj`,
+  `leaf-mask.png`; `tools/render_tree.py` renders bark and leaves).
 
 ## Minimum supported Rust version
 

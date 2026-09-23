@@ -11,7 +11,7 @@ env:
   RUST_MIN_VER: "1.92"
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
-  RUST_MIN_VER_PKGS: "-p sylva_skeleton -p sylva_grow -p sylva_mesh -p sylva_species"
+  RUST_MIN_VER_PKGS: "-p sylva_skeleton -p sylva_grow -p sylva_mesh -p sylva_foliage -p sylva_species"
   # List of packages that don't support `no_std`.
   RUST_STD_ONLY_PKGS: >-
     --exclude skeleton_dump
