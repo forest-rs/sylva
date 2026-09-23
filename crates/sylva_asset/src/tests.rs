@@ -108,6 +108,7 @@ fn every_level_becomes_meshes_with_materials_and_provenance() {
         root_order: 2,
         variants: 2,
         planes: 2,
+        leaf_facing: 0.5,
     });
     policy.levels[3].clusters = None;
     let chain = build_lods(&skeleton, &foliage, &MeshParams::default(), &policy).expect("chain");

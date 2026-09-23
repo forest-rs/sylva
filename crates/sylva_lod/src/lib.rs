@@ -152,6 +152,7 @@ impl Default for LodPolicy {
                         root_order: 3,
                         variants: 8,
                         planes: 2,
+                        leaf_facing: 0.5,
                     }),
                 },
                 LodLevel {
@@ -166,6 +167,7 @@ impl Default for LodPolicy {
                         root_order: 2,
                         variants: 4,
                         planes: 2,
+                        leaf_facing: 0.0,
                     }),
                 },
             ],
@@ -305,6 +307,10 @@ impl LodPolicy {
             if let Some(clusters) = level.clusters {
                 bad((1..=64).contains(&clusters.variants), "clusters.variants")?;
                 bad((1..=3).contains(&clusters.planes), "clusters.planes")?;
+                bad(
+                    (0.0..=1.0).contains(&clusters.leaf_facing),
+                    "clusters.leaf_facing",
+                )?;
             }
             if let Some(prev) = previous {
                 bad(level.screen_size < prev.screen_size, "screen_size order")?;

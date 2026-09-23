@@ -211,11 +211,13 @@ fn clustered_policy() -> LodPolicy {
         root_order: 2,
         variants: 3,
         planes: 2,
+        leaf_facing: 0.5,
     });
     policy.levels[3].clusters = Some(ClusterCards {
         root_order: 1,
         variants: 2,
         planes: 1,
+        leaf_facing: 0.5,
     });
     policy
 }
@@ -423,4 +425,13 @@ fn impostors_must_come_last() {
         ..LodPolicy::default()
     };
     assert_eq!(planes.validate(), Err(LodError::Impostor("planes")));
+}
+
+#[test]
+fn cluster_leaf_facing_is_a_fraction() {
+    let mut policy = LodPolicy::default();
+    if let Some(clusters) = &mut policy.levels[2].clusters {
+        clusters.leaf_facing = 1.5;
+    }
+    assert!(policy.validate().is_err());
 }

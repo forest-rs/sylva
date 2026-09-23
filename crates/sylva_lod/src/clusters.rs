@@ -7,7 +7,9 @@
 //! A level with [`ClusterCards`] groups every leaf under its ancestor branch
 //! of [`ClusterCards::root_order`] into one cluster. Each cluster becomes a
 //! [`ClusterCard`] fitted around its twigs and leaves, facing between the
-//! crown's outward direction and the leaves' mean upper surface. A few exemplar clusters, chosen by keyed quantiles of leaf count,
+//! crown's outward direction and the leaves' mean upper surface
+//! ([`ClusterCards::leaf_facing`]). A few exemplar clusters, chosen by keyed
+//! quantiles of leaf count,
 //! are baked into an atlas ([`crate::bake_clusters`]); every card samples the
 //! exemplar whose aspect is closest to its own. At a distance that reads as
 //! the crown's foliage masses for a few triangles per cluster, instead of
@@ -23,7 +25,7 @@ use sylva_foliage::Foliage;
 use sylva_skeleton::Skeleton;
 
 /// How a level draws its leaves as cluster cards.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ClusterCards {
     /// Each branch of this order, with its descendants, forms one cluster.
     /// Leaves on branches of lower order stay individual leaves.
@@ -32,6 +34,11 @@ pub struct ClusterCards {
     pub variants: u32,
     /// Card planes per cluster, crossed about its up axis: 1 to 3.
     pub planes: u32,
+    /// How far each card turns from the crown's outward direction toward
+    /// its leaves' mean upper surface, in `[0, 1]`. Small clusters read
+    /// best facing their leaves, since a blade seen edge-on bakes to a
+    /// sliver; large, volumetric clusters read best facing outward.
+    pub leaf_facing: f32,
 }
 
 /// One cluster's card.
@@ -44,7 +51,7 @@ pub struct ClusterCard {
     /// Unit direction of the card's `+X`.
     pub right: Vec3,
     /// Unit direction of the card's `+Y`: from the root's base toward its
-    /// leaves.
+    /// leaves, projected into the card plane.
     pub up: Vec3,
     /// Half extents along `right` and `up`, in metres.
     pub half: Vec2,
@@ -244,7 +251,17 @@ pub(crate) fn build_clusters(
     let mut cards: Vec<ClusterCard> = order
         .iter()
         .zip(&members)
-        .map(|(&root, leaves)| fit_card(skeleton, foliage, &roots, root, leaves, centroid))
+        .map(|(&root, leaves)| {
+            fit_card(
+                skeleton,
+                foliage,
+                &roots,
+                root,
+                leaves,
+                centroid,
+                params.leaf_facing,
+            )
+        })
         .collect();
 
     // Exemplars at the quantiles of leaf count, ties by storage order.
@@ -290,6 +307,7 @@ fn fit_card(
     root: usize,
     leaves: &[u32],
     crown_centroid: Vec3,
+    leaf_facing: f32,
 ) -> ClusterCard {
     let branch = &skeleton.branches()[root];
     let base = branch.nodes[0].position;
@@ -300,24 +318,29 @@ fn fit_card(
         .map(|&l| foliage.instances[l as usize].position)
         .sum::<Vec3>()
         / leaves.len() as f32;
-    let up = (centroid - base)
-        .try_normalize()
-        .or_else(|| (tip - base).try_normalize())
-        .unwrap_or(Vec3::Z);
-    // Face halfway between the leaves' mean upper surface and the crown's
-    // outward direction: leaves mostly face the sky, so a card facing only
-    // outward would see many of them edge-on, while one facing only their
-    // normals would lie flat and vanish from the side.
+    // Blend the crown's outward direction with the leaves' mean upper
+    // surface by `leaf_facing`: a blade seen edge-on bakes to a sliver, so a
+    // small cluster viewed along its twig shows mostly bark and reads pale
+    // beside the leaves it replaces. `up` is the twig direction projected
+    // into the card plane.
     let outward = centroid - crown_centroid;
     let surface: Vec3 = leaves
         .iter()
         .map(|&l| foliage.instances[l as usize].rotation * Vec3::Z)
         .sum();
-    let facing = outward.normalize_or_zero() + surface.normalize_or_zero();
-    let toward = (facing - up * facing.dot(up))
+    let twig = (centroid - base)
         .try_normalize()
-        .or_else(|| (outward - up * outward.dot(up)).try_normalize())
-        .unwrap_or_else(|| up.any_orthonormal_vector());
+        .or_else(|| (tip - base).try_normalize())
+        .unwrap_or(Vec3::Z);
+    let toward = (leaf_facing * surface.normalize_or_zero()
+        + (1.0 - leaf_facing) * outward.normalize_or_zero())
+    .try_normalize()
+    .or_else(|| outward.try_normalize())
+    .unwrap_or_else(|| twig.any_orthonormal_vector());
+    let up = (twig - toward * twig.dot(toward))
+        .try_normalize()
+        .or_else(|| (Vec3::Z - toward * toward.z).try_normalize())
+        .unwrap_or_else(|| toward.any_orthonormal_vector());
     let right = up.cross(toward);
 
     // Every leaf blade's extent, and the bark of the cluster's branches.
