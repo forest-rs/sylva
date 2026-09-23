@@ -1,0 +1,23 @@
+[package]
+name = "sylva_asset"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Render-ready sylva trees: LOD meshes with OpenPBR materials"
+keywords = ["procedural", "tree", "asset", "vegetation", "no_std"]
+categories = ["graphics", "game-development", "no-std"]
+publish = false
+
+[dependencies]
+exedra_mesh.workspace = true
+glam.workspace = true
+openpbr.workspace = true
+sylva_foliage.workspace = true
+sylva_lod.workspace = true
+sylva_mesh.workspace = true
+sylva_skeleton.workspace = true
+
+[lints]
+workspace = true

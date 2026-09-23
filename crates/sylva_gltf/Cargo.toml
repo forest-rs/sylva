@@ -1,0 +1,24 @@
+[package]
+name = "sylva_gltf"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "glTF export of sylva tree assets through exedra_gltf"
+keywords = ["procedural", "tree", "gltf", "vegetation"]
+categories = ["graphics", "game-development"]
+publish = false
+
+[dependencies]
+exedra_assembly.workspace = true
+exedra_gltf.workspace = true
+exedra_math.workspace = true
+exedra_mesh.workspace = true
+openpbr.workspace = true
+serde_json.workspace = true
+sylva_asset.workspace = true
+sylva_mesh.workspace = true
+
+[lints]
+workspace = true

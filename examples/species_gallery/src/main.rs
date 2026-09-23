@@ -33,8 +33,10 @@ use std::time::Instant;
 
 use dapple_encode::{Filter, PackSettings, Profile, ktx2, pack};
 use exedra_mesh::{ExtractAttribute, ExtractParams, NormalsSource, TriMesh};
+use sylva_asset::{MaterialRole, TreeMaterials, build_asset};
 use sylva_bake::BakeMaterial;
 use sylva_foliage::{Foliage, leaf_mask, place_leaves};
+use sylva_gltf::{MaterialTextures, export_lod_glb};
 use sylva_lod::{
     Atlas, AtlasSettings, CardMaterials, LodPolicy, bake_clusters, bake_impostor, build_lods,
 };
@@ -302,12 +304,78 @@ fn write_lods(
         write_atlas(&out.join("impostor"), &atlas)?;
         std::fs::write(out.join("impostor.obj"), bark_obj(&impostor.geometry())?)?;
     }
+    if seed == 1 {
+        write_glbs(dir, skeleton, foliage, &chain)?;
+    }
     Ok(format!(
         ",\"lods\":{{\"build_us\":{},\"levels\":[{}],\"impostor_planes\":{}}}",
         elapsed.as_micros(),
         levels.join(","),
         chain.impostor.as_ref().map_or(0, |i| i.views.len())
     ))
+}
+
+/// Builds the tree asset and writes each level, the impostor last, as
+/// `glb/lod<n>.glb`, with the species' texture sets and the baked atlases
+/// already written beside it.
+fn write_glbs(
+    dir: &std::path::Path,
+    skeleton: &sylva_skeleton::Skeleton,
+    foliage: &Foliage,
+    chain: &sylva_lod::LodChain,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let asset = build_asset(skeleton, foliage, chain, &TreeMaterials::default())?;
+    let species = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.split("-seed").next())
+        .ok_or("seed directory name")?;
+    let textures_dir = dir.parent().ok_or("gallery directory")?.join("textures");
+    // Encoded PNG images per material, in asset material order.
+    let sets: Vec<PathBuf> = asset
+        .materials
+        .iter()
+        .map(|m| match m.role {
+            MaterialRole::Bark => textures_dir.join(format!("{species}-bark/gltf")),
+            MaterialRole::Leaf => textures_dir.join(format!("{species}-leaf/gltf")),
+            MaterialRole::Cards { level } => dir.join(format!("lods/lod{level}-cards")),
+            MaterialRole::Impostor => dir.join("lods/impostor"),
+        })
+        .collect();
+    let read =
+        |set: &std::path::Path, name: &str| std::fs::read(set.join(format!("{name}.png"))).ok();
+    let images: Vec<[Option<Vec<u8>>; 3]> = sets
+        .iter()
+        .map(|set| {
+            [
+                read(set, "base_color"),
+                read(set, "orm"),
+                read(set, "normal"),
+            ]
+        })
+        .collect();
+    let textures: Vec<MaterialTextures<'_>> = images
+        .iter()
+        .map(|[base_color, orm, normal]| MaterialTextures {
+            base_color: base_color.as_deref(),
+            orm: orm.as_deref(),
+            normal: normal.as_deref(),
+        })
+        .collect();
+    let out = dir.join("glb");
+    std::fs::create_dir_all(&out)?;
+    for level in 0..asset.lods.len() {
+        let started = Instant::now();
+        let glb = export_lod_glb(&asset, level, &textures)?;
+        println!(
+            "lod{level}.glb: {} KiB, {} images, written in {} ms",
+            glb.bytes.len() / 1024,
+            glb.stats.images,
+            started.elapsed().as_millis()
+        );
+        std::fs::write(out.join(format!("lod{level}.glb")), &glb.bytes)?;
+    }
+    Ok(())
 }
 
 /// Packs a baked atlas for glTF (colour with coverage alpha, normals) and

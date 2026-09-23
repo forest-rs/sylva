@@ -16,6 +16,8 @@
 [default.extend-words]
 # Level of detail (`LOD0`, `sylva_lod`, `MSFT_lod`).
 lod = "lod"
+# OpenPBR parameter names (`base_metalness`).
+metalness = "metalness"
 
 [files]
 # Include .github, .cargo, etc.

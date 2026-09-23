@@ -9,6 +9,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
+name = "autocfg"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -28,6 +40,15 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
+name = "color"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ec7c5eb7a16992b1904d76c517d170ab353b0e0b3d5a0c81a8a0cd1037893cf"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "crc32fast"
@@ -69,9 +90,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "euclid"
+version = "0.22.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "exedra_assembly"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/exedra?rev=aaface7292c6622be6e9fa8b453fe3b73abcf9f3#aaface7292c6622be6e9fa8b453fe3b73abcf9f3"
+dependencies = [
+ "exedra_constructive",
+ "exedra_mesh",
+ "exedra_mesh_ops",
+ "hashbrown",
+ "invalidation",
+]
+
+[[package]]
+name = "exedra_constructive"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/exedra?rev=aaface7292c6622be6e9fa8b453fe3b73abcf9f3#aaface7292c6622be6e9fa8b453fe3b73abcf9f3"
+dependencies = [
+ "exedra_math",
+ "exedra_mesh",
+ "exedra_mesh_ops",
+ "exedra_primitives",
+ "exedra_triangulate",
+ "hashbrown",
+ "kurbo",
+ "libm",
+]
+
+[[package]]
+name = "exedra_gltf"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/exedra?rev=aaface7292c6622be6e9fa8b453fe3b73abcf9f3#aaface7292c6622be6e9fa8b453fe3b73abcf9f3"
+dependencies = [
+ "exedra_assembly",
+ "exedra_constructive",
+ "exedra_mesh",
+ "serde_json",
+]
+
+[[package]]
 name = "exedra_math"
 version = "0.1.0"
-source = "git+https://github.com/forest-rs/exedra?rev=d959d3dab36ccc50f77817f1a37e2ae4ff73cc23#d959d3dab36ccc50f77817f1a37e2ae4ff73cc23"
+source = "git+https://github.com/forest-rs/exedra?rev=aaface7292c6622be6e9fa8b453fe3b73abcf9f3#aaface7292c6622be6e9fa8b453fe3b73abcf9f3"
 dependencies = [
  "libm",
 ]
@@ -79,7 +147,7 @@ dependencies = [
 [[package]]
 name = "exedra_mesh"
 version = "0.1.0"
-source = "git+https://github.com/forest-rs/exedra?rev=d959d3dab36ccc50f77817f1a37e2ae4ff73cc23#d959d3dab36ccc50f77817f1a37e2ae4ff73cc23"
+source = "git+https://github.com/forest-rs/exedra?rev=aaface7292c6622be6e9fa8b453fe3b73abcf9f3#aaface7292c6622be6e9fa8b453fe3b73abcf9f3"
 dependencies = [
  "exedra_math",
  "exedra_triangulate",
@@ -89,9 +157,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "exedra_mesh_ops"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/exedra?rev=aaface7292c6622be6e9fa8b453fe3b73abcf9f3#aaface7292c6622be6e9fa8b453fe3b73abcf9f3"
+dependencies = [
+ "exedra_math",
+ "exedra_mesh",
+ "exedra_triangulate",
+ "hashbrown",
+ "libm",
+]
+
+[[package]]
+name = "exedra_primitives"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/exedra?rev=aaface7292c6622be6e9fa8b453fe3b73abcf9f3#aaface7292c6622be6e9fa8b453fe3b73abcf9f3"
+dependencies = [
+ "exedra_mesh",
+ "libm",
+]
+
+[[package]]
 name = "exedra_triangulate"
 version = "0.1.0"
-source = "git+https://github.com/forest-rs/exedra?rev=d959d3dab36ccc50f77817f1a37e2ae4ff73cc23#d959d3dab36ccc50f77817f1a37e2ae4ff73cc23"
+source = "git+https://github.com/forest-rs/exedra?rev=aaface7292c6622be6e9fa8b453fe3b73abcf9f3#aaface7292c6622be6e9fa8b453fe3b73abcf9f3"
 
 [[package]]
 name = "fdeflate"
@@ -147,10 +236,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "kurbo"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
+dependencies = [
+ "arrayvec",
+ "euclid",
+ "libm",
+ "polycool",
+ "smallvec",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
+name = "memchr"
+version = "2.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "miniz_oxide"
@@ -173,6 +287,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-traits"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
+dependencies = [
+ "autocfg",
+ "libm",
+]
+
+[[package]]
+name = "openpbr"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/openpbr?rev=374ddf3512e7bb4d369708777be6b3ff60754964#374ddf3512e7bb4d369708777be6b3ff60754964"
+dependencies = [
+ "color",
+]
+
+[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -183,6 +315,16 @@ dependencies = [
  "fdeflate",
  "flate2",
  "miniz_oxide 0.8.9",
+]
+
+[[package]]
+name = "polycool"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
+dependencies = [
+ "arrayvec",
+ "libm",
 ]
 
 [[package]]
@@ -247,6 +389,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_json"
+version = "1.0.151"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
+]
+
+[[package]]
 name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -261,6 +416,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "smallvec"
+version = "1.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+
+[[package]]
 name = "species_gallery"
 version = "0.0.0"
 dependencies = [
@@ -269,13 +430,28 @@ dependencies = [
  "png",
  "ron",
  "skeleton_dump",
+ "sylva_asset",
  "sylva_bake",
  "sylva_foliage",
+ "sylva_gltf",
  "sylva_lod",
  "sylva_mesh",
  "sylva_skeleton",
  "sylva_species",
  "sylva_texture",
+]
+
+[[package]]
+name = "sylva_asset"
+version = "0.0.1"
+dependencies = [
+ "exedra_mesh",
+ "glam",
+ "openpbr",
+ "sylva_foliage",
+ "sylva_lod",
+ "sylva_mesh",
+ "sylva_skeleton",
 ]
 
 [[package]]
@@ -297,6 +473,20 @@ dependencies = [
  "libm",
  "serde",
  "sylva_skeleton",
+]
+
+[[package]]
+name = "sylva_gltf"
+version = "0.0.1"
+dependencies = [
+ "exedra_assembly",
+ "exedra_gltf",
+ "exedra_math",
+ "exedra_mesh",
+ "openpbr",
+ "serde_json",
+ "sylva_asset",
+ "sylva_mesh",
 ]
 
 [[package]]
@@ -385,3 +575,9 @@ name = "zlib-rs"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
