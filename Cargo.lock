@@ -269,11 +269,22 @@ dependencies = [
  "png",
  "ron",
  "skeleton_dump",
+ "sylva_bake",
  "sylva_foliage",
  "sylva_mesh",
  "sylva_skeleton",
  "sylva_species",
  "sylva_texture",
+]
+
+[[package]]
+name = "sylva_bake"
+version = "0.0.1"
+dependencies = [
+ "dapple_encode",
+ "dapple_raster",
+ "glam",
+ "libm",
 ]
 
 [[package]]

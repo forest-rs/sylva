@@ -25,6 +25,8 @@
 //! colour is `translucency.png`, since dapple's profiles carry no
 //! transmission slot yet.
 
+mod card;
+
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -48,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or_else(|| "target/species-gallery".to_owned()),
     );
     let species: Species = ron::from_str(OAK)?;
-    write_textures(&out_dir.join("textures"), &species)?;
+    let textures = write_textures(&out_dir.join("textures"), &species)?;
     for seed in SEEDS {
         let started = Instant::now();
         let grown = species.grow(seed)?;
@@ -74,9 +76,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let place_us = placed.elapsed().as_micros();
                 std::fs::write(dir.join("leaves.obj"), leaves_obj(&foliage)?)?;
                 write_mask(&dir.join("leaf-mask.png"), &foliage)?;
+                let card = card::bake_twig_card(
+                    &dir.join("twig-card"),
+                    &grown.skeleton,
+                    &tri,
+                    &foliage,
+                    &textures,
+                )?;
                 let r = &foliage.report;
                 format!(
-                    ",\"foliage\":{{\"leaves\":{},\"templates\":{},\"triangles\":{},\"place_us\":{place_us}}}",
+                    ",\"foliage\":{{\"leaves\":{},\"templates\":{},\"triangles\":{},\"place_us\":{place_us}}}{card}",
                     r.leaves, r.templates, r.instanced_triangles
                 )
             }
@@ -183,15 +192,24 @@ fn write_mask(path: &std::path::Path, foliage: &Foliage) -> Result<(), Box<dyn s
 fn write_textures(
     dir: &std::path::Path,
     species: &Species,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<card::Textures, Box<dyn std::error::Error>> {
     let started = Instant::now();
     let bark_set = bark(&BarkRecipe::default())?;
+    let mut textures = card::Textures {
+        bark: bark_set
+            .maps
+            .base_color
+            .clone()
+            .expect("bark sets have colour"),
+        leaf: None,
+    };
     let mut sets = vec![(format!("{}-bark", species.name), bark_set.maps, None)];
     if let Some(foliage) = &species.foliage {
         let leaf_set = leaf(&LeafRecipe {
             shape: foliage.shape,
             ..LeafRecipe::default()
         })?;
+        textures.leaf = leaf_set.maps.base_color.clone();
         sets.push((
             format!("{}-leaf", species.name),
             leaf_set.maps,
@@ -229,7 +247,7 @@ fn write_textures(
         species.name,
         generated.as_millis()
     );
-    Ok(())
+    Ok(textures)
 }
 
 /// Writes a 3-channel linear image as an 8-bit sRGB PNG.

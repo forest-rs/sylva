@@ -1,0 +1,20 @@
+[package]
+name = "sylva_bake"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic CPU baking of geometry into card and impostor textures for sylva"
+keywords = ["procedural", "tree", "baking", "impostor", "no_std"]
+categories = ["graphics", "game-development", "no-std"]
+publish = false
+
+[dependencies]
+dapple_encode.workspace = true
+dapple_raster.workspace = true
+glam.workspace = true
+libm.workspace = true
+
+[lints]
+workspace = true

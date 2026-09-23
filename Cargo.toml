@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/sylva_bake",
     "crates/sylva_foliage",
     "crates/sylva_grow",
     "crates/sylva_mesh",
@@ -86,6 +87,7 @@ exedra_mesh = { default-features = false, features = ["libm"], git = "https://gi
 glam = { default-features = false, features = ["libm", "scalar-math"], version = "0.33.7" }
 libm = "0.2.16"
 serde = { default-features = false, features = ["alloc", "derive"], version = "1.0.228" }
+sylva_bake = { path = "crates/sylva_bake", version = "0.0.1" }
 sylva_foliage = { path = "crates/sylva_foliage", version = "0.0.1" }
 sylva_grow = { path = "crates/sylva_grow", version = "0.0.1" }
 sylva_mesh = { path = "crates/sylva_mesh", version = "0.0.1" }
