@@ -67,17 +67,17 @@ starts.
 | `sylva_wind` | Wind attribute encoding, CPU reference evaluator, reference shader | yes |
 | `sylva_lod` | LOD policy, skeleton-driven reduction, leaf budget, transitions | yes |
 | `sylva_bake` | Deterministic CPU rasterizer / ray caster for card and impostor bakes | yes |
-| texture synthesis (own name) | Noise, cellular, reaction–diffusion, height→normal, coverage-preserving mips, atlas packing, PNG/KTX2 out | core yes |
-| `sylva_texture` | Species texture recipes (bark, leaf) built on the synthesis crate | yes |
+| `sylva_texture` | Species texture recipes (bark, leaf) built on dapple | yes |
 | `sylva_asset` | Species → `TreeAsset` orchestration, stage caching, reports | yes |
 | `sylva_forest` | Placement, variant pools, ecosystem competition, instance tiles | yes |
 | `sylva_gltf` | glTF adapter | std |
 | `sylva` | Leaf-only facade (exedra convention) | yes |
 | `examples/*`, `apps/*` | Blender review scripts, species gallery, lightweald forest demo | std |
 
-The texture synthesis crate stays general, not tree-specific, so exedra
-materials and other forest-rs projects can use it. It could later move to its
-own repo.
+General material synthesis lives in [dapple](../../dapple), a separate
+forest-rs procedural material engine that exedra, joiner and lightweald
+consumers also use. Sylva keeps only tree-specific recipes and the
+geometry-driven bakes.
 
 ## Key contracts
 
@@ -380,12 +380,9 @@ stubbed.
 
 1. **Math:** glam inside sylva, converting at the exedra boundary.
 2. **First species:** an oak-like decurrent broadleaf.
-3. **Lightweald changes** are made in lightweald by its maintainers, including
+3. **Material synthesis** lives in the dapple repo; sylva depends on it.
+4. **Lightweald changes** are made in lightweald by its maintainers, including
    the sylva work, and agreed there first.
-
-## Open decisions
-
-1. **Texture synthesis:** scope, name and home (see discussion).
 
 ## References
 
