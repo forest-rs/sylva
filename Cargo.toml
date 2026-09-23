@@ -1,7 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/sylva_grow",
     "crates/sylva_skeleton",
+    "crates/sylva_species",
     "examples/skeleton_dump",
 ]
 
@@ -73,4 +75,7 @@ clippy.allow_attributes = "warn"
 # platforms. Determinism is a sylva contract, not a performance afterthought.
 glam = { default-features = false, features = ["libm", "scalar-math"], version = "0.33.7" }
 libm = "0.2.16"
+serde = { default-features = false, features = ["alloc", "derive"], version = "1.0.228" }
+sylva_grow = { path = "crates/sylva_grow", version = "0.0.1" }
 sylva_skeleton = { path = "crates/sylva_skeleton", version = "0.0.1" }
+sylva_species = { path = "crates/sylva_species", version = "0.0.1" }

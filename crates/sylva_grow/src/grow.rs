@@ -1,0 +1,451 @@
+// Copyright 2026 the Sylva Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The hierarchical generator.
+
+use alloc::vec::Vec;
+use core::f32::consts::{PI, TAU};
+
+use sylva_skeleton::glam::{Quat, Vec3};
+use sylva_skeleton::keyed::{Key, tag};
+use sylva_skeleton::passes::{
+    FrameParams, FrameReport, PipeModel, PipeReport, compute_frames, pipe_model_radii,
+};
+use sylva_skeleton::{Attachment, Branch, BranchId, Frame, Node, Site, Skeleton};
+
+use crate::{Arrangement, Count, Envelope, GrowError, Hierarchy, Level, Shape, Sites};
+
+/// Lineage keys are `level index + 1`, so the trunk's children use lineage 1.
+const TRUNK_LINEAGE_OFFSET: u64 = 1;
+
+/// A grown tree and what it took.
+#[derive(Clone, Debug)]
+pub struct Grown {
+    /// The skeleton, with pipe-model radii, frames and sites.
+    pub skeleton: Skeleton,
+    /// Deterministic work counts.
+    pub report: GrowReport,
+}
+
+/// Deterministic counts from one [`grow()`] call.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GrowReport {
+    /// Branches kept per level; index 0 is the trunk.
+    pub branches_by_level: Vec<usize>,
+    /// Centerline nodes across all branches.
+    pub nodes: usize,
+    /// Branches shortened where they left the envelope or reached the ground.
+    pub truncated: usize,
+    /// Branches removed because pruning left too little of them.
+    pub removed: usize,
+    /// Children skipped because their length rounded to nothing.
+    pub skipped: usize,
+    /// Foliage sites placed.
+    pub sites: usize,
+    /// The final pipe-model pass.
+    pub pipe: PipeReport,
+    /// The final frame pass.
+    pub frames: FrameReport,
+}
+
+/// Grows `hierarchy` from `seed`.
+///
+/// Every random decision draws from the keyed hash of the seed, the deciding
+/// branch's [`BranchId`] and a purpose tag. Branch IDs follow the generation
+/// path (parent, level, ordinal), so changing one level's parameters leaves
+/// every branch of the levels above it bit-identical in position and ID. Pipe
+/// radii are the exception: they depend on everything a branch supports.
+///
+/// Levels grow breadth-first. After each level, frames are recomputed so the
+/// next level's azimuths are measured from each parent's rotation-minimizing
+/// normal. Radii, final frames and sites follow the last level.
+///
+/// # Errors
+///
+/// [`GrowError::InvalidParameter`] for out-of-range parameters, checked before
+/// any growth; [`GrowError::Skeleton`] if the result fails skeleton checks,
+/// which indicates a generator bug.
+pub fn grow(hierarchy: &Hierarchy, seed: u64) -> Result<Grown, GrowError> {
+    crate::validate::check(hierarchy)?;
+    let mut skeleton = Skeleton::new();
+    let mut report = GrowReport::default();
+    let step = hierarchy.segment_length;
+
+    let trunk_id = BranchId::root(0);
+    let trunk_key = trunk_id.key(seed);
+    let trunk = &hierarchy.trunk;
+    let length = trunk.length * (1.0 + trunk.length_jitter * signed(trunk_key, "length"));
+    let lean = trunk.lean * trunk_key.with(tag("lean")).unit_f32();
+    let lean_azimuth = TAU * trunk_key.with(tag("lean.azimuth")).unit_f32();
+    let direction = Quat::from_axis_angle(
+        Vec3::new(-libm::sinf(lean_azimuth), libm::cosf(lean_azimuth), 0.0),
+        lean,
+    ) * Vec3::Z;
+    let nodes = centerline(Vec3::ZERO, direction, length, &trunk.shape, trunk_key, step);
+    skeleton.push_branch(Branch {
+        id: trunk_id,
+        order: 0,
+        parent: None,
+        nodes,
+    })?;
+    report.branches_by_level.push(1);
+
+    let mut parents = alloc::vec![trunk_id];
+    for (level_index, level) in hierarchy.levels.iter().enumerate() {
+        compute_frames(&mut skeleton, &FrameParams::default());
+        let lineage = level_index as u64 + TRUNK_LINEAGE_OFFSET;
+        let envelope = hierarchy
+            .envelope
+            .as_ref()
+            .filter(|e| level_index >= e.from_level as usize);
+        let mut next = Vec::new();
+        for parent_id in parents {
+            let parent = skeleton.branch(parent_id).expect("parents were pushed");
+            let (children, skipped) = place_children(parent, level, lineage, seed);
+            report.skipped += skipped;
+            let parent_order = parent.order;
+            for child in children {
+                let key = child.id.key(seed);
+                let mut nodes = centerline(
+                    child.start,
+                    child.direction,
+                    child.length,
+                    &level.shape,
+                    key,
+                    step,
+                );
+                match prune(&mut nodes, child.length, envelope) {
+                    Pruned::Kept => {}
+                    Pruned::Truncated => report.truncated += 1,
+                    Pruned::Removed => {
+                        report.removed += 1;
+                        continue;
+                    }
+                }
+                skeleton.push_branch(Branch {
+                    id: child.id,
+                    order: parent_order + 1,
+                    parent: Some(Attachment {
+                        parent: parent_id,
+                        t: child.t,
+                    }),
+                    nodes,
+                })?;
+                next.push(child.id);
+            }
+        }
+        report.branches_by_level.push(next.len());
+        parents = next;
+    }
+
+    report.pipe = pipe_model_radii(
+        &mut skeleton,
+        &PipeModel {
+            tip_radius: hierarchy.radii.tip_radius,
+            exponent: hierarchy.radii.exponent,
+        },
+    )?;
+    report.frames = compute_frames(&mut skeleton, &FrameParams::default());
+    report.sites = place_sites(&mut skeleton, hierarchy, seed)?;
+    report.nodes = skeleton.branches().iter().map(|b| b.nodes.len()).sum();
+    skeleton.validate()?;
+    Ok(Grown { skeleton, report })
+}
+
+/// A value in `[-1, 1)` for `purpose` under `key`.
+fn signed(key: Key, purpose: &str) -> f32 {
+    key.with(tag(purpose)).signed_unit_f32()
+}
+
+/// Rounds `x` down or up with probability equal to its fractional part.
+fn keyed_round(x: f32, key: Key) -> u32 {
+    let floor = libm::floorf(x);
+    let up = key.unit_f32() < x - floor;
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "counts are validated finite and non-negative, and small"
+    )]
+    let base = floor as u32;
+    base + u32::from(up)
+}
+
+/// One child's placement on its parent.
+struct Placement {
+    id: BranchId,
+    t: f32,
+    start: Vec3,
+    direction: Vec3,
+    length: f32,
+}
+
+/// Places `level`'s children on `parent`; also returns how many were skipped
+/// for having no length.
+fn place_children(
+    parent: &Branch,
+    level: &Level,
+    lineage: u64,
+    seed: u64,
+) -> (Vec<Placement>, usize) {
+    let parent_key = parent.id.key(seed).with(lineage);
+    let parent_length = parent.length();
+    let [lo, hi] = level.span;
+    let count = match level.count {
+        Count::Fixed(n) => n,
+        Count::PerMetre(density) => keyed_round(
+            density * parent_length * (hi - lo),
+            parent_key.with(tag("count")),
+        ),
+    };
+    let (per_node, node_step) = match level.arrangement {
+        Arrangement::Spiral { divergence } => (1, divergence),
+        Arrangement::Alternate => (1, PI),
+        Arrangement::Opposite => (2, PI * 0.5),
+        Arrangement::Whorled { per_node } => (per_node, PI / per_node as f32),
+    };
+    let node_count = count.div_ceil(per_node);
+    let phase = TAU * parent_key.with(tag("phase")).unit_f32();
+    let mut placements = Vec::with_capacity(count as usize);
+    let mut skipped = 0;
+    for ordinal in 0..count {
+        let node = ordinal / per_node;
+        let within = ordinal % per_node;
+        let id = parent.id.child(lineage, u64::from(ordinal));
+        let key = id.key(seed);
+        // Children of one node share its position; jitter is keyed by node so
+        // opposite and whorled children stay together.
+        let node_key = parent_key.with(tag("node")).with(u64::from(node));
+        let slot = (node as f32 + 0.5 + 0.5 * level.position_jitter * node_key.signed_unit_f32())
+            / node_count as f32;
+        let t = (lo + (hi - lo) * slot).clamp(lo, hi).clamp(0.0, 1.0);
+        let azimuth = phase
+            + node as f32 * node_step
+            + within as f32 * TAU / per_node as f32
+            + level.roll_jitter * signed(key, "roll");
+        let angle = level.angle.eval(t) + level.angle_jitter * signed(key, "angle");
+        let length = parent_length
+            * level.length.eval(t)
+            * (1.0 + level.length_jitter * signed(key, "length"));
+        if length <= 1e-3 {
+            skipped += 1;
+            continue;
+        }
+        let sample = parent.sample(t);
+        let frame = sample.frame;
+        let side = frame.normal * libm::cosf(azimuth) + frame.binormal() * libm::sinf(azimuth);
+        let direction = (frame.tangent * libm::cosf(angle) + side * libm::sinf(angle))
+            .normalize_or(frame.tangent);
+        placements.push(Placement {
+            id,
+            t,
+            start: sample.position,
+            direction,
+            length,
+        });
+    }
+    (placements, skipped)
+}
+
+/// Smooth keyed 1D value noise in `[-1, 1)` at lattice spacing 1.
+fn smooth_noise(key: Key, x: f32) -> f32 {
+    let cell = libm::floorf(x);
+    let f = x - cell;
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "arc lengths over wavelengths are small and non-negative"
+    )]
+    let i = cell as i64 as u64;
+    let a = key.with(i).signed_unit_f32();
+    let b = key.with(i.wrapping_add(1)).signed_unit_f32();
+    let s = f * f * (3.0 - 2.0 * f);
+    a + (b - a) * s
+}
+
+/// Turns `heading` toward `target` by at most `angle` radians.
+fn turn_toward(heading: Vec3, target: Vec3, angle: f32) -> Vec3 {
+    let axis = heading.cross(target);
+    let Some(axis) = axis.try_normalize() else {
+        return heading;
+    };
+    let between = libm::acosf(heading.dot(target).clamp(-1.0, 1.0));
+    Quat::from_axis_angle(axis, angle.min(between)) * heading
+}
+
+/// Samples a centerline of `length` from `start` along `direction`, bending by
+/// `shape`.
+fn centerline(
+    start: Vec3,
+    direction: Vec3,
+    length: f32,
+    shape: &Shape,
+    key: Key,
+    segment_length: f32,
+) -> Vec<Node> {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "lengths over the validated segment length are small and positive"
+    )]
+    let segments = (libm::ceilf(length / segment_length) as usize).max(2);
+    let step = length / segments as f32;
+    let mut position = start;
+    let mut heading = direction.normalize_or(Vec3::Z);
+    // A frame carried along the branch gives the gnarl its two bend axes
+    // and the vertical curve its axis when the heading is vertical.
+    let (mut frame, _) =
+        Frame::from_tangent_or_axis(heading, Vec3::Z).expect("heading is a finite unit vector");
+    let wander = [key.with(tag("gnarl.u")), key.with(tag("gnarl.v"))];
+    let wavelength = shape.gnarl_wavelength.max(1e-3);
+    let fallback_axis = {
+        let azimuth = TAU * key.with(tag("curve.azimuth")).unit_f32();
+        Vec3::new(libm::cosf(azimuth), libm::sinf(azimuth), 0.0)
+    };
+    let mut nodes = Vec::with_capacity(segments + 1);
+    nodes.push(Node::at(position));
+    for segment in 0..segments {
+        let s = (segment as f32 + 0.5) / segments as f32;
+        let distance = s * length;
+
+        // Planar curve: rotate about the horizontal axis perpendicular to
+        // the heading, so positive values bend up.
+        let curve_total = if s < 0.5 {
+            shape.curve
+        } else {
+            shape.curve_back
+        };
+        let curve_angle = curve_total * 2.0 * step / length;
+        if curve_angle != 0.0 {
+            let axis = heading
+                .cross(Vec3::Z)
+                .try_normalize()
+                .unwrap_or(fallback_axis);
+            // A positive rotation about heading x Z turns toward +Z.
+            heading = Quat::from_axis_angle(axis, curve_angle) * heading;
+        }
+
+        if shape.gnarl != 0.0 {
+            let u = smooth_noise(wander[0], distance / wavelength);
+            let v = smooth_noise(wander[1], distance / wavelength);
+            let turn = shape.gnarl * step;
+            heading = Quat::from_axis_angle(frame.normal, turn * u) * heading;
+            heading = Quat::from_axis_angle(frame.binormal(), turn * v) * heading;
+        }
+        if shape.up != 0.0 {
+            heading = turn_toward(heading, Vec3::Z, shape.up * step);
+        }
+        if shape.sag != 0.0 {
+            heading = turn_toward(heading, -Vec3::Z, shape.sag * s * step);
+        }
+        if shape.light != 0.0 {
+            let radial = Vec3::new(position.x, position.y, 0.0)
+                .try_normalize()
+                .or_else(|| Vec3::new(heading.x, heading.y, 0.0).try_normalize());
+            if let Some(radial) = radial {
+                heading = turn_toward(heading, radial, shape.light * step);
+            }
+        }
+        heading = heading.normalize_or(Vec3::Z);
+        let next = position + heading * step;
+        frame = frame.transport(position, next, heading);
+        position = next;
+        nodes.push(Node::at(position));
+    }
+    nodes
+}
+
+enum Pruned {
+    Kept,
+    Truncated,
+    Removed,
+}
+
+fn inside(envelope: Option<&Envelope>, p: Vec3) -> bool {
+    if p.z < 0.0 {
+        return false;
+    }
+    let Some(e) = envelope else {
+        return true;
+    };
+    let u = (p.z - e.base) / e.height;
+    if !(0.0..=1.0).contains(&u) {
+        return false;
+    }
+    Vec3::new(p.x, p.y, 0.0).length() <= e.radius * e.profile.eval(u)
+}
+
+/// Truncates `nodes` at the first node outside the envelope (or below
+/// ground). The first node is the attachment point and is never tested.
+fn prune(nodes: &mut Vec<Node>, intended: f32, envelope: Option<&Envelope>) -> Pruned {
+    let Some(first_out) = nodes
+        .iter()
+        .skip(1)
+        .position(|node| !inside(envelope, node.position))
+        .map(|i| i + 1)
+    else {
+        return Pruned::Kept;
+    };
+    let min_fraction = envelope.map_or(0.0, |e| e.min_fraction);
+    if first_out < 2 {
+        return Pruned::Removed;
+    }
+    nodes.truncate(first_out);
+    let kept: f32 = nodes
+        .windows(2)
+        .map(|pair| pair[0].position.distance(pair[1].position))
+        .sum();
+    if kept < min_fraction * intended {
+        Pruned::Removed
+    } else {
+        Pruned::Truncated
+    }
+}
+
+fn place_sites(
+    skeleton: &mut Skeleton,
+    hierarchy: &Hierarchy,
+    seed: u64,
+) -> Result<usize, GrowError> {
+    let mut sites = Vec::new();
+    for branch in skeleton.branches() {
+        let Some(level) = (branch.order as usize)
+            .checked_sub(1)
+            .and_then(|index| hierarchy.levels.get(index))
+        else {
+            continue;
+        };
+        let Some(Sites {
+            per_metre,
+            span: [lo, hi],
+            kind,
+        }) = level.sites
+        else {
+            continue;
+        };
+        let key = branch.id.key(seed).with(tag("sites"));
+        let count = keyed_round(
+            per_metre * branch.length() * (hi - lo),
+            key.with(tag("count")),
+        );
+        for ordinal in 0..count {
+            let site_key = key.with(u64::from(ordinal));
+            let t = lo
+                + (hi - lo) * (ordinal as f32 + 0.5 + 0.4 * site_key.signed_unit_f32())
+                    / count as f32;
+            let frame = branch.sample(t.clamp(0.0, 1.0)).frame;
+            let roll = crate::GOLDEN_ANGLE * ordinal as f32;
+            let normal = Quat::from_axis_angle(frame.tangent, roll) * frame.normal;
+            let frame = Frame::from_tangent(frame.tangent, normal).unwrap_or(frame);
+            sites.push(Site {
+                branch: branch.id,
+                ordinal,
+                kind,
+                t: t.clamp(0.0, 1.0),
+                frame,
+                scale: 1.0,
+            });
+        }
+    }
+    let placed = sites.len();
+    for site in sites {
+        skeleton.push_site(site)?;
+    }
+    Ok(placed)
+}
