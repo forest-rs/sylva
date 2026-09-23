@@ -20,5 +20,8 @@ serde_json.workspace = true
 sylva_asset.workspace = true
 sylva_mesh.workspace = true
 
+[dev-dependencies]
+glam.workspace = true
+
 [lints]
 workspace = true

@@ -39,7 +39,7 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use exedra_mesh::{BuildError, ExtractParams, Mesh, MeshBuilder, TriMesh, op};
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use openpbr::Parameters;
 use openpbr::color::{LinearSrgb, OpaqueColor};
 use sylva_foliage::{Foliage, LeafInstance};
@@ -135,6 +135,40 @@ pub struct AssetLod {
     pub crossfade: f32,
     /// Its meshes; a level may have no meshes of some kind.
     pub meshes: Vec<AssetMesh>,
+    /// The same leaves as the `leaves` mesh, as templates and placements,
+    /// for exporters that instance them; `None` when the level draws no
+    /// individual leaves.
+    pub leaves: Option<AssetLeaves>,
+}
+
+/// A level's leaves as shared templates and per-leaf placements.
+///
+/// Instancing draws each template once per placement. It gives up what the
+/// merged `leaves` mesh bakes per leaf: canopy normals (the templates carry
+/// their own) and per-vertex branch provenance (each placement keeps its
+/// branch instead).
+#[derive(Clone, Debug)]
+pub struct AssetLeaves {
+    /// Template meshes in leaf space (midrib `+Y`, upper surface `+Z`),
+    /// with UVs and normals, drawn with the leaf material.
+    pub templates: Vec<Mesh>,
+    /// One placement per leaf.
+    pub instances: Vec<AssetLeaf>,
+}
+
+/// One leaf's placement.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct AssetLeaf {
+    /// Index into [`AssetLeaves::templates`].
+    pub template: u32,
+    /// Blade base position.
+    pub position: Vec3,
+    /// Rotation from leaf space.
+    pub rotation: Quat,
+    /// Uniform scale.
+    pub scale: f32,
+    /// Index in the skeleton of the carrying branch, or `u32::MAX`.
+    pub branch: u32,
 }
 
 /// Deterministic counts describing an asset.
@@ -237,11 +271,26 @@ pub fn build_asset(
             material: 0,
             mesh: level.bark.mesh.clone(),
         });
+        let mut leaves = None;
         if !level.leaves.is_empty() {
             meshes.push(AssetMesh {
                 name: "leaves",
                 material: 1,
                 mesh: leaf_mesh(foliage, &level.templates, &level.leaves, &leaf_branches)?,
+            });
+            leaves = Some(AssetLeaves {
+                templates: level.templates.clone(),
+                instances: level
+                    .leaves
+                    .iter()
+                    .map(|leaf| AssetLeaf {
+                        template: leaf.template,
+                        position: leaf.position,
+                        rotation: leaf.rotation,
+                        scale: leaf.scale,
+                        branch: branch_of_site(foliage, &leaf_branches, leaf.site),
+                    })
+                    .collect(),
             });
         }
         if let Some(clusters) = &level.clusters {
@@ -268,6 +317,7 @@ pub fn build_asset(
             screen_size: level.level.screen_size,
             crossfade: level.level.crossfade,
             meshes,
+            leaves,
         });
     }
     if let Some(impostor) = &chain.impostor {
@@ -292,6 +342,7 @@ pub fn build_asset(
                 material,
                 mesh: quad_mesh(&geometry, &branches)?,
             }],
+            leaves: None,
         });
     }
     let report = AssetReport {
@@ -321,19 +372,10 @@ fn leaf_mesh(
         .iter()
         .map(|t| t.to_trimesh(&ExtractParams::default()).0)
         .collect();
-    // Leaf instances at a level are rescaled copies of the foliage's; find
-    // each one's branch through its site.
-    let branch_of_site = |site: u32| {
-        foliage
-            .instances
-            .binary_search_by_key(&site, |l| l.site)
-            .ok()
-            .map_or(u32::MAX, |i| leaf_branches[i])
-    };
     let mut merged = Merged::default();
     for leaf in leaves {
         let t = &templates[leaf.template as usize];
-        let branch = branch_of_site(leaf.site);
+        let branch = branch_of_site(foliage, leaf_branches, leaf.site);
         let base = merged.positions.len();
         for p in &t.positions {
             let world = leaf.position + leaf.rotation * (Vec3::from_array(*p) * leaf.scale);
@@ -350,6 +392,16 @@ fn leaf_mesh(
         }
     }
     merged.build()
+}
+
+/// Leaf instances at a level are rescaled copies of the foliage's; finds
+/// one's branch through its site.
+fn branch_of_site(foliage: &Foliage, leaf_branches: &[u32], site: u32) -> u32 {
+    foliage
+        .instances
+        .binary_search_by_key(&site, |l| l.site)
+        .ok()
+        .map_or(u32::MAX, |i| leaf_branches[i])
 }
 
 /// Card quads as a mesh, one branch index per vertex.

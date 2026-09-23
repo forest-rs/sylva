@@ -8,7 +8,9 @@
 Imports every `glb/lod<n>.glb` with Blender's glTF importer, unchanged, so
 materials, textures, alpha modes and normals are exactly what the files
 carry. Places the levels in a row and renders them in EEVEE under a sun and
-sky to `glb.png` next to the input.
+sky to `glb.png` next to the input. With `--instanced` after the directory,
+uses each level's `lod<n>-instanced.glb` where one exists and writes
+`glb-instanced.png`, for comparing instanced leaves with merged ones.
 """
 
 import math
@@ -23,11 +25,11 @@ def args():
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     if not argv:
         sys.exit("usage: render_glb.py -- <species_gallery seed dir>")
-    return Path(argv[0])
+    return Path(argv[0]), "--instanced" in argv[1:]
 
 
 def main():
-    out_dir = args()
+    out_dir, instanced = args()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
@@ -44,7 +46,17 @@ def main():
     sun_obj.rotation_euler = (math.radians(40), 0.0, math.radians(-30))
     scene.collection.objects.link(sun_obj)
 
-    levels = sorted((out_dir / "glb").glob("lod*.glb"))
+    levels = sorted(
+        (out_dir / "glb").glob("lod*.glb"), key=lambda p: int(p.stem[3:].split("-")[0])
+    )
+    levels = [p for p in levels if not p.stem.endswith("-instanced")]
+    if instanced:
+        levels = [
+            p.with_name(f"{p.stem}-instanced.glb")
+            if p.with_name(f"{p.stem}-instanced.glb").exists()
+            else p
+            for p in levels
+        ]
     spacing = 16.0
     for n, path in enumerate(levels):
         before = set(bpy.data.objects)
@@ -62,7 +74,7 @@ def main():
     cam.location = target + Vector((0.0, -60.0, 4.0))
     cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
     scene.camera = cam
-    scene.render.filepath = str(out_dir / "glb.png")
+    scene.render.filepath = str(out_dir / ("glb-instanced.png" if instanced else "glb.png"))
     bpy.ops.render.render(write_still=True)
     print(f"wrote {scene.render.filepath}")
 

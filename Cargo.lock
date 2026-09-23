@@ -493,6 +493,7 @@ dependencies = [
  "exedra_gltf",
  "exedra_math 0.1.0 (git+https://github.com/forest-rs/exedra?rev=c1adf63a9b1b7f9c7734044f0f00aa4167368133)",
  "exedra_mesh",
+ "glam",
  "openpbr",
  "serde_json",
  "sylva_asset",

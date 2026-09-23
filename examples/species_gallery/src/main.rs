@@ -15,6 +15,7 @@
 //! blender --background --python examples/species_gallery/tools/render_lods.py -- "$d"
 //! blender --background --python examples/species_gallery/tools/measure_lods.py -- "$d"
 //! blender --background --python examples/species_gallery/tools/render_glb.py -- "$d"
+//! blender --background --python examples/species_gallery/tools/render_glb.py -- "$d" --instanced
 //! ```
 //!
 //! Outputs default to `.local/gallery/`, which is git-ignored and survives
@@ -47,7 +48,7 @@ use exedra_mesh::{ExtractAttribute, ExtractParams, NormalsSource, TriMesh};
 use sylva_asset::{MaterialRole, TreeMaterials, build_asset};
 use sylva_bake::BakeMaterial;
 use sylva_foliage::{Foliage, leaf_mask, place_leaves};
-use sylva_gltf::{MaterialTextures, export_lod_glb};
+use sylva_gltf::{ExportOptions, LeafExport, MaterialTextures, export_lod_glb_with};
 use sylva_lod::{
     Atlas, AtlasSettings, CardMaterials, Impostor, ImpostorLayout, ImpostorPolicy, LodPolicy,
     bake_clusters, bake_impostor, build_lods,
@@ -380,7 +381,8 @@ fn write_lods(
 }
 
 /// Builds the tree asset and writes each level, the impostor last, as
-/// `glb/lod<n>.glb`, with the species' texture sets and the baked atlases
+/// `glb/lod<n>.glb` (and `glb/lod<n>-instanced.glb` for levels with
+/// individual leaves), with the species' texture sets and the baked atlases
 /// already written beside it.
 fn write_glbs(
     dir: &std::path::Path,
@@ -432,16 +434,23 @@ fn write_glbs(
         .collect();
     let out = dir.join("glb");
     std::fs::create_dir_all(&out)?;
-    for level in 0..asset.lods.len() {
-        let started = Instant::now();
-        let glb = export_lod_glb(&asset, level, &textures)?;
-        println!(
-            "lod{level}.glb: {} KiB, {} images, written in {} ms",
-            glb.bytes.len() / 1024,
-            glb.stats.images,
-            started.elapsed().as_millis()
-        );
-        std::fs::write(out.join(format!("lod{level}.glb")), &glb.bytes)?;
+    for (level, lod) in asset.lods.iter().enumerate() {
+        let mut exports = vec![(format!("lod{level}.glb"), LeafExport::Merged)];
+        if lod.leaves.is_some() {
+            exports.push((format!("lod{level}-instanced.glb"), LeafExport::Instanced));
+        }
+        for (name, leaves) in exports {
+            let started = Instant::now();
+            let options = ExportOptions::default().with_leaves(leaves);
+            let glb = export_lod_glb_with(&asset, level, &textures, options)?;
+            println!(
+                "{name}: {} KiB, {} images, written in {} ms",
+                glb.bytes.len() / 1024,
+                glb.stats.images,
+                started.elapsed().as_millis()
+            );
+            std::fs::write(out.join(name), &glb.bytes)?;
+        }
     }
     Ok(())
 }

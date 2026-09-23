@@ -5,10 +5,14 @@ use exedra_gltf::GlbDocument;
 use exedra_mesh::{Mesh, MeshBuilder, op};
 use openpbr::Parameters;
 use openpbr::color::{LinearSrgb, OpaqueColor};
-use sylva_asset::{AssetLod, AssetMesh, AssetReport, MaterialRole, TreeAsset, TreeMaterial};
+use sylva_asset::{
+    AssetLeaf, AssetLeaves, AssetLod, AssetMesh, AssetReport, MaterialRole, TreeAsset, TreeMaterial,
+};
 use sylva_mesh::BRANCH_LAYER;
 
-use crate::{ExportError, MaterialTextures, export_lod_glb};
+use crate::{
+    ExportError, ExportOptions, LeafExport, MaterialTextures, export_lod_glb, export_lod_glb_with,
+};
 
 /// A 1 x 1 RGBA PNG.
 const PNG: &[u8] = &[
@@ -48,6 +52,21 @@ fn quad(branch: u32) -> Mesh {
     mesh
 }
 
+/// A leaf template: a quad with UVs and normals but no branch layer.
+fn bare_quad() -> Mesh {
+    let mut builder = MeshBuilder::new();
+    for p in [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ] {
+        builder.push_vertex(p);
+    }
+    builder.add_face(&[0, 1, 2, 3]).expect("face");
+    builder.build().expect("build").mesh
+}
+
 fn asset() -> TreeAsset {
     let mut leaf = Parameters::<LinearSrgb>::DEFAULT;
     leaf.base_color = OpaqueColor::new([0.2, 0.5, 0.1]);
@@ -70,6 +89,7 @@ fn asset() -> TreeAsset {
                     mesh: quad(3),
                 },
             ],
+            leaves: None,
         }],
         materials: vec![
             TreeMaterial {
@@ -187,4 +207,52 @@ fn exports_check_their_inputs() {
             found: 1
         })
     ));
+}
+
+#[test]
+fn instanced_leaves_draw_each_template_once() {
+    let mut asset = asset();
+    let leaf = |x: f32| AssetLeaf {
+        template: 0,
+        position: glam::Vec3::new(x, 0.0, 2.0),
+        rotation: glam::Quat::from_rotation_z(x),
+        scale: 0.5,
+        branch: 3,
+    };
+    asset.lods[0].leaves = Some(AssetLeaves {
+        templates: vec![bare_quad()],
+        instances: vec![leaf(0.0), leaf(1.0), leaf(2.0)],
+    });
+    let textures = [MaterialTextures::default(); 2];
+    let options = ExportOptions::default().with_leaves(LeafExport::Instanced);
+    // The templates have no branch layer; they export `NO_BRANCH`, which
+    // the float encoding represents.
+    let glb = export_lod_glb_with(&asset, 0, &textures, options).expect("export");
+    let json = GlbDocument::parse(&glb.bytes)
+        .expect("parse")
+        .json()
+        .clone();
+    let required = json["extensionsRequired"].as_array().expect("required");
+    assert!(required.iter().any(|e| e == "EXT_mesh_gpu_instancing"));
+    let nodes = json["nodes"].as_array().expect("nodes");
+    let batched: Vec<_> = nodes
+        .iter()
+        .filter_map(|n| n["extensions"].get("EXT_mesh_gpu_instancing"))
+        .collect();
+    assert_eq!(batched.len(), 1, "one batch for the one template");
+    let translation = batched[0]["attributes"]["TRANSLATION"]
+        .as_u64()
+        .expect("translation accessor");
+    assert_eq!(
+        json["accessors"][usize::try_from(translation).expect("index")]["count"],
+        3
+    );
+
+    // The default still merges.
+    let merged = export_lod_glb(&asset, 0, &textures).expect("export");
+    let merged = GlbDocument::parse(&merged.bytes)
+        .expect("parse")
+        .json()
+        .clone();
+    assert!(merged.get("extensionsRequired").is_none());
 }

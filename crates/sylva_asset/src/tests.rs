@@ -142,6 +142,15 @@ fn every_level_becomes_meshes_with_materials_and_provenance() {
         chain.levels[0].report.leaf_triangles,
         "one triangle per template triangle per leaf"
     );
+    let instanced = asset.lods[0].leaves.as_ref().expect("instanced leaves");
+    assert_eq!(instanced.instances.len(), chain.levels[0].leaves.len());
+    assert!(
+        instanced
+            .instances
+            .iter()
+            .all(|l| (l.template as usize) < instanced.templates.len())
+    );
+    assert!(asset.lods[2].leaves.is_none(), "cards draw no leaves");
     let branches = u32::try_from(skeleton.branches().len()).expect("few branches");
     for lod in &asset.lods {
         for mesh in &lod.meshes {
