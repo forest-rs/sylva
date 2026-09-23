@@ -34,6 +34,7 @@ use std::time::Instant;
 use dapple_encode::{Filter, PackSettings, Profile, ktx2, pack};
 use exedra_mesh::{ExtractAttribute, ExtractParams, NormalsSource, TriMesh};
 use sylva_foliage::{Foliage, leaf_mask, place_leaves};
+use sylva_lod::{LodPolicy, build_lods};
 use sylva_mesh::{BRANCH_LAYER, MeshParams, mesh_skeleton};
 use sylva_texture::{BarkRecipe, LeafRecipe, bark, leaf};
 
@@ -76,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let place_us = placed.elapsed().as_micros();
                 std::fs::write(dir.join("leaves.obj"), leaves_obj(&foliage)?)?;
                 write_mask(&dir.join("leaf-mask.png"), &foliage)?;
+                let lods = write_lods(&dir, seed, &grown.skeleton, &foliage)?;
                 let card = card::bake_twig_card(
                     &dir.join("twig-card"),
                     &grown.skeleton,
@@ -85,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?;
                 let r = &foliage.report;
                 format!(
-                    ",\"foliage\":{{\"leaves\":{},\"templates\":{},\"triangles\":{},\"place_us\":{place_us}}}{card}",
+                    ",\"foliage\":{{\"leaves\":{},\"templates\":{},\"triangles\":{},\"place_us\":{place_us}}}{card}{lods}",
                     r.leaves, r.templates, r.instanced_triangles
                 )
             }
@@ -150,15 +152,23 @@ fn bark_obj(tri: &TriMesh) -> Result<String, std::fmt::Error> {
 
 /// Writes every leaf instance at full detail as one OBJ with UVs.
 fn leaves_obj(foliage: &Foliage) -> Result<String, std::fmt::Error> {
-    let templates: Vec<TriMesh> = foliage
-        .templates
+    let templates: Vec<&exedra_mesh::Mesh> = foliage.templates.iter().map(|t| &t.mesh).collect();
+    instances_obj(&templates, &foliage.instances)
+}
+
+/// Writes leaf instances of `templates` as one OBJ with UVs.
+fn instances_obj(
+    templates: &[&exedra_mesh::Mesh],
+    instances: &[sylva_foliage::LeafInstance],
+) -> Result<String, std::fmt::Error> {
+    let templates: Vec<TriMesh> = templates
         .iter()
-        .map(|t| t.mesh.to_trimesh(&ExtractParams::default()).0)
+        .map(|t| t.to_trimesh(&ExtractParams::default()).0)
         .collect();
     let mut out = String::from("# sylva leaves\n");
     let mut faces = String::new();
     let mut base = 1_u32;
-    for leaf in &foliage.instances {
+    for leaf in instances {
         let tri = &templates[leaf.template as usize];
         for (p, uv) in tri.positions.iter().zip(&tri.uvs) {
             let world = leaf.position
@@ -174,6 +184,58 @@ fn leaves_obj(foliage: &Foliage) -> Result<String, std::fmt::Error> {
     }
     out.push_str(&faces);
     Ok(out)
+}
+
+/// Builds the LOD chain and returns a stats fragment; seed 1 also writes
+/// each level as `lods/lod<n>-bark.obj` and `lods/lod<n>-leaves.obj`.
+fn write_lods(
+    dir: &std::path::Path,
+    seed: u64,
+    skeleton: &sylva_skeleton::Skeleton,
+    foliage: &Foliage,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let started = Instant::now();
+    let chain = build_lods(
+        skeleton,
+        foliage,
+        &MeshParams::default(),
+        &LodPolicy::default(),
+    )?;
+    let elapsed = started.elapsed();
+    let mut levels = Vec::new();
+    for (n, lod) in chain.iter().enumerate() {
+        let r = lod.report;
+        levels.push(format!(
+            "{{\"screen_size\":{},\"branches\":{},\"pruned\":{},\"bark_triangles\":{},\
+             \"leaves\":{},\"leaf_triangles\":{},\"triangles\":{}}}",
+            lod.level.screen_size,
+            r.branches,
+            r.pruned_branches,
+            r.bark_triangles,
+            r.leaves,
+            r.leaf_triangles,
+            r.triangles()
+        ));
+        if seed == 1 {
+            let out = dir.join("lods");
+            std::fs::create_dir_all(&out)?;
+            let (tri, _) = lod.bark.mesh.to_trimesh(&ExtractParams {
+                normals: NormalsSource::CustomOnly,
+                ..ExtractParams::default()
+            });
+            std::fs::write(out.join(format!("lod{n}-bark.obj")), bark_obj(&tri)?)?;
+            let templates: Vec<&exedra_mesh::Mesh> = lod.templates.iter().collect();
+            std::fs::write(
+                out.join(format!("lod{n}-leaves.obj")),
+                instances_obj(&templates, &lod.leaves)?,
+            )?;
+        }
+    }
+    Ok(format!(
+        ",\"lods\":{{\"build_us\":{},\"levels\":[{}]}}",
+        elapsed.as_micros(),
+        levels.join(",")
+    ))
 }
 
 /// Writes the first template's coverage mask as an 8-bit grayscale PNG.

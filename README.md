@@ -29,6 +29,9 @@ The design lives in [`docs/design.md`](docs/design.md).
 - **[sylva_bake](crates/sylva_bake/)**: deterministic CPU baking of geometry
   into card textures (base colour, coverage, card-frame normals, depth), for
   twig-cluster cards and impostors.
+- **[sylva_lod](crates/sylva_lod/)**: level-of-detail chains regenerated from
+  the skeleton: coarser bark, pruned twig bark, nested leaf subsets that keep
+  canopy leaf area, and leaf cards, with screen-size thresholds.
 - **[sylva_species](crates/sylva_species/)**: species descriptions as data
   (with the `serde` feature), naming a growth backend and its parameters,
   plus optional foliage.
@@ -43,7 +46,9 @@ Examples live in `examples/`:
   grid by `tools/render_bark.py`), places its leaves (`leaves.obj`,
   `leaf-mask.png`), and generates its bark and leaf texture sets
   (`textures/`) and a twig-cluster card of its leafiest branchlet
-  (`twig-card/`); `tools/render_tree.py` renders the textured tree.
+  (`twig-card/`), and builds its LOD chain (`lods/`); `tools/render_tree.py`
+  renders the textured tree and `tools/render_lods.py` the chain side by
+  side.
 
 ## Minimum supported Rust version
 

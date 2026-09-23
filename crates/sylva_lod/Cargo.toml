@@ -1,0 +1,22 @@
+[package]
+name = "sylva_lod"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Level-of-detail chains for sylva trees, regenerated from the skeleton"
+keywords = ["procedural", "tree", "lod", "vegetation", "no_std"]
+categories = ["graphics", "game-development", "no-std"]
+publish = false
+
+[dependencies]
+exedra_mesh.workspace = true
+glam.workspace = true
+libm.workspace = true
+sylva_foliage.workspace = true
+sylva_mesh.workspace = true
+sylva_skeleton.workspace = true
+
+[lints]
+workspace = true
