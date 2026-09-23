@@ -178,6 +178,8 @@ pub struct Site {
 pub struct Skeleton {
     branches: Vec<Branch>,
     index: BTreeMap<BranchId, usize>,
+    /// Storage indices of each branch's direct children, in push order.
+    children: Vec<Vec<usize>>,
     sites: Vec<Site>,
 }
 
@@ -203,8 +205,8 @@ impl Skeleton {
         if self.index.contains_key(&id) {
             return Err(SkeletonError::DuplicateBranch { branch: id });
         }
-        let expected = match branch.parent {
-            None => 0,
+        let (expected, parent_index) = match branch.parent {
+            None => (0, None),
             Some(Attachment { parent, t }) => {
                 let Some(&parent_index) = self.index.get(&parent) else {
                     return Err(SkeletonError::MissingParent { branch: id, parent });
@@ -212,7 +214,10 @@ impl Skeleton {
                 if !(0.0..=1.0).contains(&t) {
                     return Err(SkeletonError::ParameterOutOfRange { branch: parent, t });
                 }
-                self.branches[parent_index].order.saturating_add(1)
+                (
+                    self.branches[parent_index].order.saturating_add(1),
+                    Some(parent_index),
+                )
             }
         };
         if branch.order != expected {
@@ -223,7 +228,12 @@ impl Skeleton {
             });
         }
         check_nodes(&branch, false)?;
-        self.index.insert(id, self.branches.len());
+        let index = self.branches.len();
+        self.index.insert(id, index);
+        if let Some(parent) = parent_index {
+            self.children[parent].push(index);
+        }
+        self.children.push(Vec::new());
         self.branches.push(branch);
         Ok(())
     }
@@ -295,10 +305,22 @@ impl Skeleton {
     }
 
     /// Direct children of `id`, in storage order.
+    ///
+    /// Runs in time proportional to the number of children: child lists are
+    /// kept as branches are pushed.
     pub fn children(&self, id: BranchId) -> impl Iterator<Item = &Branch> + '_ {
-        self.branches
-            .iter()
-            .filter(move |branch| branch.parent.is_some_and(|a| a.parent == id))
+        self.index
+            .get(&id)
+            .into_iter()
+            .flat_map(|&index| self.child_indices(index))
+            .map(|&child| &self.branches[child])
+    }
+
+    /// Storage indices of the direct children of the branch stored at
+    /// `index`, in push order; empty for an index out of range.
+    #[must_use]
+    pub fn child_indices(&self, index: usize) -> &[usize] {
+        self.children.get(index).map_or(&[], Vec::as_slice)
     }
 
     /// Mutable node access for the crate's passes, which keep structure intact.
@@ -408,4 +430,48 @@ fn check_nodes(branch: &Branch, complete: bool) -> Result<(), SkeletonError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    use glam::Vec3;
+
+    use crate::{Attachment, Branch, BranchId, Node, Skeleton};
+
+    fn branch(id: BranchId, order: u32, parent: Option<BranchId>) -> Branch {
+        Branch {
+            id,
+            order,
+            parent: parent.map(|parent| Attachment { parent, t: 0.5 }),
+            nodes: vec![Node::at(Vec3::ZERO), Node::at(Vec3::Z)],
+        }
+    }
+
+    #[test]
+    fn child_lists_follow_push_order_per_parent() {
+        let trunk = BranchId::root(0);
+        let (a, b) = (trunk.child(1, 0), trunk.child(1, 1));
+        let a1 = a.child(2, 0);
+        let mut skeleton = Skeleton::new();
+        skeleton.push_branch(branch(trunk, 0, None)).expect("trunk");
+        skeleton.push_branch(branch(a, 1, Some(trunk))).expect("a");
+        skeleton.push_branch(branch(a1, 2, Some(a))).expect("a1");
+        skeleton.push_branch(branch(b, 1, Some(trunk))).expect("b");
+        let ids = |skeleton: &Skeleton, id| skeleton.children(id).map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(&skeleton, trunk), [a, b]);
+        assert_eq!(ids(&skeleton, a), [a1]);
+        assert!(ids(&skeleton, b).is_empty());
+        assert!(
+            ids(&skeleton, BranchId::root(9)).is_empty(),
+            "unknown IDs have none"
+        );
+        assert_eq!(skeleton.child_indices(0), [1, 3]);
+        assert!(skeleton.child_indices(99).is_empty());
+        // A rejected push leaves the child lists unchanged.
+        assert!(skeleton.push_branch(branch(a1, 2, Some(a))).is_err());
+        assert_eq!(ids(&skeleton, a), [a1]);
+    }
 }

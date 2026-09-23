@@ -174,26 +174,22 @@ pub fn pipe_model_radii(
     let e = params.exponent;
     let tip_flow = libm::powf(params.tip_radius, e);
     let count = skeleton.branches().len();
-    // Direct children of each branch as (t, child index), in storage order.
-    // Built once so the pass stays linear in the branch count.
-    let mut children_of: Vec<Vec<(f32, usize)>> = alloc::vec![Vec::new(); count];
-    for (child, branch) in skeleton.branches().iter().enumerate() {
-        if let Some(attachment) = branch.parent {
-            let parent = skeleton
-                .index_of(attachment.parent)
-                .expect("push_branch guarantees the parent exists");
-            children_of[parent].push((attachment.t, child));
-        }
-    }
     // Base flow of each branch, filled as children are sized first.
     let mut base_flow = alloc::vec![0.0_f32; count];
     let mut report = PipeReport::default();
     for index in (0..count).rev() {
         // (t, flow) of each direct child, sorted by t descending; the stable
         // sort keeps storage order for equal t.
-        let mut children: Vec<(f32, f32)> = children_of[index]
+        let mut children: Vec<(f32, f32)> = skeleton
+            .child_indices(index)
             .iter()
-            .map(|&(t, child)| (t, base_flow[child]))
+            .map(|&child| {
+                let t = skeleton.branches()[child]
+                    .parent
+                    .expect("children have attachments")
+                    .t;
+                (t, base_flow[child])
+            })
             .collect();
         children.sort_by(|a, b| b.0.total_cmp(&a.0));
 
