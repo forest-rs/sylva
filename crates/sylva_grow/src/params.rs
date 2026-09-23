@@ -243,11 +243,15 @@ pub struct Envelope {
 /// Pipe-model radius settings.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct Radii {
     /// Radius at every branch tip, metres.
     pub tip_radius: f32,
     /// Pipe-model exponent (`r_parent^e = sum r_child^e`).
     pub exponent: f32,
+    /// Unmodeled shoots per metre of centerline, each carrying a tip's flow
+    /// (see `sylva_skeleton::passes::PipeModel::shoots_per_metre`).
+    pub shoots_per_metre: f32,
 }
 
 impl Default for Radii {
@@ -255,6 +259,7 @@ impl Default for Radii {
         Self {
             tip_radius: 0.004,
             exponent: 2.3,
+            shoots_per_metre: 0.0,
         }
     }
 }

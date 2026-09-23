@@ -61,6 +61,7 @@ fn tree(with_child: bool, step: f32) -> Skeleton {
         &PipeModel {
             tip_radius: 0.05,
             exponent: 2.0,
+            ..PipeModel::default()
         },
     )
     .expect("radii");

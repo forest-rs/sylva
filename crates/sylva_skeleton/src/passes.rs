@@ -105,6 +105,16 @@ pub struct PipeModel {
     /// Exponent `e` of `r_parent^e = Σ r_child^e`. Leonardo's rule is 2;
     /// measured trees mostly fall between 2 and 3.
     pub exponent: f32,
+    /// Unmodeled shoots per metre of centerline, each carrying a tip's flow.
+    ///
+    /// A skeleton stops at some level of twigs, but the real tree carries
+    /// finer shoots and leaves beyond it. Without this, trunk girth can only
+    /// be matched by inflating `tip_radius`, which also makes every twig too
+    /// thick. With it, a branch's flow grows by `tip_radius^e *
+    /// shoots_per_metre` per metre from its tip, so tips stay thin, branches
+    /// taper even without modeled children, and trunks keep their girth.
+    /// Zero is the classic tip-only model.
+    pub shoots_per_metre: f32,
 }
 
 impl Default for PipeModel {
@@ -112,6 +122,7 @@ impl Default for PipeModel {
         Self {
             tip_radius: 0.004,
             exponent: 2.3,
+            shoots_per_metre: 0.0,
         }
     }
 }
@@ -130,9 +141,10 @@ pub struct PipeReport {
 /// Assigns radii by the pipe model, from the tips down.
 ///
 /// Every tip carries `tip_radius^e` of "flow". Walking a branch from tip to
-/// base, a node carries the tip's flow plus the base flow of every child
-/// attached at or beyond it (`child.t >= node.t`); its radius is that flow to
-/// the power `1/e`. A branch's base radius is therefore the combined size of
+/// base, a node carries the tip's flow, the flow of the unmodeled shoots along
+/// the centerline between it and the tip ([`PipeModel::shoots_per_metre`]),
+/// and the base flow of every child attached at or beyond it
+/// (`child.t >= node.t`); its radius is that flow to the power `1/e`. A branch's base radius is therefore the combined size of
 /// everything it supports, which is what makes forks read correctly.
 ///
 /// Branches are processed in reverse storage order, so children are sized
@@ -153,6 +165,12 @@ pub fn pipe_model_radii(
     if !(params.exponent.is_finite() && params.exponent >= 1.0) {
         return Err(SkeletonError::InvalidParameter { name: "exponent" });
     }
+    if !(params.shoots_per_metre.is_finite() && params.shoots_per_metre >= 0.0) {
+        return Err(SkeletonError::InvalidParameter {
+            name: "shoots_per_metre",
+        });
+    }
+    let shoot_flow = libm::powf(params.tip_radius, params.exponent) * params.shoots_per_metre;
     let e = params.exponent;
     let tip_flow = libm::powf(params.tip_radius, e);
     let count = skeleton.branches().len();
@@ -194,10 +212,11 @@ pub fn pipe_model_radii(
                 flow += children[next_child].1;
                 next_child += 1;
             }
-            node.radius = libm::powf(flow, 1.0 / e);
+            let shoots = shoot_flow * (total - lengths[node_index]);
+            node.radius = libm::powf(flow + shoots, 1.0 / e);
             report.max_radius = report.max_radius.max(node.radius);
         }
-        base_flow[index] = flow;
+        base_flow[index] = flow + shoot_flow * total;
         report.branches += 1;
         report.nodes += branch.nodes.len();
     }
@@ -255,6 +274,7 @@ mod tests {
         let params = PipeModel {
             tip_radius: 0.01,
             exponent: 2.0,
+            shoots_per_metre: 0.0,
         };
         let report = pipe_model_radii(&mut skeleton, &params).expect("radii");
         assert_eq!(report.branches, 4);
@@ -282,6 +302,7 @@ mod tests {
                 PipeModel {
                     tip_radius: 0.0,
                     exponent: 2.0,
+                    shoots_per_metre: 0.0,
                 },
                 "tip_radius",
             ),
@@ -289,6 +310,7 @@ mod tests {
                 PipeModel {
                     tip_radius: 0.01,
                     exponent: 0.5,
+                    shoots_per_metre: 0.0,
                 },
                 "exponent",
             ),
@@ -448,5 +470,60 @@ mod tests {
             skeleton.validate(),
             Err(SkeletonError::InvalidRadius { .. })
         ));
+    }
+
+    #[test]
+    fn unmodeled_shoots_taper_branches_and_thicken_their_parents() {
+        let trunk = BranchId::root(0);
+        let mut skeleton = Skeleton::new();
+        skeleton
+            .push_branch(Branch {
+                id: trunk,
+                order: 0,
+                parent: None,
+                nodes: (0..=4)
+                    .map(|i| Node::at(Vec3::new(0.0, 0.0, i as f32)))
+                    .collect(),
+            })
+            .expect("trunk");
+        let params = PipeModel {
+            tip_radius: 0.01,
+            exponent: 2.0,
+            shoots_per_metre: 3.0,
+        };
+        pipe_model_radii(&mut skeleton, &params).expect("radii");
+        let radii: Vec<f32> = skeleton.branches()[0]
+            .nodes
+            .iter()
+            .map(|n| n.radius)
+            .collect();
+        assert!(
+            (radii[4] - 0.01).abs() < 1e-6,
+            "the tip keeps the tip radius"
+        );
+        // Four metres of shoots at 3 per metre add 12 tips' flow.
+        let expected = libm::sqrtf(0.01 * 0.01 * 13.0);
+        assert!(
+            (radii[0] - expected).abs() < 1e-6,
+            "{} vs {expected}",
+            radii[0]
+        );
+        assert!(
+            radii.windows(2).all(|w| w[0] > w[1]),
+            "tapers toward the tip"
+        );
+        let err = pipe_model_radii(
+            &mut skeleton,
+            &PipeModel {
+                shoots_per_metre: -1.0,
+                ..params
+            },
+        );
+        assert_eq!(
+            err,
+            Err(SkeletonError::InvalidParameter {
+                name: "shoots_per_metre"
+            })
+        );
     }
 }

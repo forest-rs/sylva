@@ -146,6 +146,7 @@ pub fn grow(hierarchy: &Hierarchy, seed: u64) -> Result<Grown, GrowError> {
         &PipeModel {
             tip_radius: hierarchy.radii.tip_radius,
             exponent: hierarchy.radii.exponent,
+            shoots_per_metre: hierarchy.radii.shoots_per_metre,
         },
     )?;
     report.frames = compute_frames(&mut skeleton, &FrameParams::default());

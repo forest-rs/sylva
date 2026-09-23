@@ -95,9 +95,9 @@ Species(
             from_level: 0,
             min_fraction: 0.3,
         )),
-        // The skeleton stops at twigs, so each terminal carries the flow of the
-        // unmodeled shoots beyond it.
-        radii: (tip_radius: 0.016, exponent: 2.3),
+        // Twig tips are 4 mm; the skeleton stops at twigs, so each metre of
+        // centerline also carries the flow of the unmodeled shoots on it.
+        radii: (tip_radius: 0.004, exponent: 2.3, shoots_per_metre: 28.0),
         segment_length: 0.3,
     )),
     // Pedunculate-oak leaves: obovate, five rounded lobes a side, clustered
