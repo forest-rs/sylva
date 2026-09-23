@@ -109,3 +109,55 @@ fn bark_obj(tri: &TriMesh) -> Result<String, std::fmt::Error> {
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use sylva_species::Species;
+
+    use super::OAK;
+
+    /// Scaffold and secondary branches of the oak must not curl back on
+    /// themselves: their overall turn stays under 135 degrees (a limb may
+    /// rise, then arch down), and any
+    /// stretch of centerline at least a metre long spans at least half its
+    /// arc length (a closed loop spans none, a semicircle about 64%).
+    #[test]
+    fn oak_branches_do_not_loop() {
+        let species: Species = ron::from_str(OAK).expect("preset");
+        for seed in 1..=8 {
+            let grown = species.grow(seed).expect("grow");
+            for branch in grown.skeleton.branches() {
+                if branch.order == 0 || branch.order > 2 {
+                    continue;
+                }
+                let p: Vec<_> = branch.nodes.iter().map(|n| n.position).collect();
+                let first = (p[1] - p[0]).normalize();
+                let last = (p[p.len() - 1] - p[p.len() - 2]).normalize();
+                let turn = libm_acos(first.dot(last)).to_degrees();
+                assert!(
+                    turn < 135.0,
+                    "seed {seed}: order {} turns {turn}",
+                    branch.order
+                );
+                let arcs = branch.arc_lengths();
+                for i in 0..p.len() {
+                    for j in i + 2..p.len() {
+                        let arc = arcs[j] - arcs[i];
+                        if arc >= 1.0 {
+                            let ratio = p[i].distance(p[j]) / arc;
+                            assert!(
+                                ratio >= 0.5,
+                                "seed {seed}: order {} curls back (chord/arc {ratio})",
+                                branch.order
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn libm_acos(x: f32) -> f32 {
+        x.clamp(-1.0, 1.0).acos()
+    }
+}

@@ -83,10 +83,12 @@ pub struct Shape {
     /// Phototropism: turn toward the horizontal direction away from the trunk
     /// axis at this rate, spreading the crown outward.
     pub light: f32,
-    /// Abrupt turn at every internode, in radians. Many trees grow
+    /// Angle between consecutive internodes, in radians. Many trees grow
     /// sympodially: each season's shoot ends and a side bud takes over, so
     /// twigs zig-zag and old limbs are crooked rather than smoothly curved.
-    /// Zero disables kinks.
+    /// Kinks zig-zag around the branch's smooth heading and never accumulate
+    /// into it, so they add crookedness without steering the branch. Zero
+    /// disables kinks.
     pub kink: f32,
     /// Internode length between kinks, in metres. The centerline gets a node
     /// at every kink, so this also bounds the node spacing.

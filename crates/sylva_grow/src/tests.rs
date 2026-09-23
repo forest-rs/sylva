@@ -330,3 +330,37 @@ fn balance_evens_the_crown_without_changing_structure() {
     assert_eq!(ids, balanced_ids, "balance changes lengths, not identities");
     assert!(balanced < lopsided * 0.8, "{balanced} vs {lopsided}");
 }
+
+#[test]
+fn kinks_zig_zag_around_the_trend_without_steering_it() {
+    let mut hierarchy = Hierarchy {
+        trunk: Trunk {
+            length: 6.0,
+            shape: Shape {
+                kink: 0.5,
+                kink_interval: 0.2,
+                kink_jitter: 0.8,
+                ..Shape::default()
+            },
+            ..Trunk::default()
+        },
+        levels: Vec::new(),
+        envelope: None,
+        radii: Radii::default(),
+        segment_length: 0.5,
+    };
+    for seed in 0..16 {
+        let grown = grow(&hierarchy, seed).expect("grow");
+        let nodes = &grown.skeleton.branches()[0].nodes;
+        let chord = nodes.last().unwrap().position - nodes[0].position;
+        let drift = libm::acosf(chord.normalize().dot(Vec3::Z));
+        assert!(
+            drift < 0.2,
+            "seed {seed}: kinks drifted the trunk by {drift}"
+        );
+    }
+    hierarchy.trunk.shape.kink = 0.0;
+    let straight = grow(&hierarchy, 0).expect("straight");
+    let nodes = &straight.skeleton.branches()[0].nodes;
+    assert!((nodes.last().unwrap().position - Vec3::new(0.0, 0.0, 6.0)).length() < 1e-4);
+}

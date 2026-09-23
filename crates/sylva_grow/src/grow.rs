@@ -362,17 +362,6 @@ fn centerline(
             heading = Quat::from_axis_angle(frame.normal, turn * u) * heading;
             heading = Quat::from_axis_angle(frame.binormal(), turn * v) * heading;
         }
-        if shape.kink != 0.0 && segment > 0 {
-            // Sympodial growth: alternate sides in one plane, with keyed
-            // irregularity in angle and side.
-            let k = kink_key.with(segment as u64);
-            let angle = shape.kink * (1.0 + shape.kink_jitter * k.with(0).signed_unit_f32());
-            let side = if segment % 2 == 0 { 0.0 } else { PI };
-            let azimuth =
-                kink_azimuth + side + shape.kink_jitter * PI * k.with(1).signed_unit_f32();
-            let axis = frame.normal * libm::cosf(azimuth) + frame.binormal() * libm::sinf(azimuth);
-            heading = Quat::from_axis_angle(axis, angle) * heading;
-        }
         if shape.up != 0.0 {
             heading = turn_toward(heading, Vec3::Z, shape.up * step);
         }
@@ -388,7 +377,22 @@ fn centerline(
             }
         }
         heading = heading.normalize_or(Vec3::Z);
-        let next = position + heading * step;
+        // Sympodial growth zig-zags around the trend: each internode leans
+        // half a kink to alternate sides of the smooth heading, so
+        // consecutive internodes meet at the kink angle while the trend,
+        // steered by the terms above, never accumulates the kinks.
+        let internode = if shape.kink == 0.0 {
+            heading
+        } else {
+            let k = kink_key.with(segment as u64);
+            let angle = 0.5 * shape.kink * (1.0 + shape.kink_jitter * k.with(0).signed_unit_f32());
+            let side = if segment % 2 == 0 { 0.0 } else { PI };
+            let azimuth =
+                kink_azimuth + side + shape.kink_jitter * PI * k.with(1).signed_unit_f32();
+            let axis = frame.normal * libm::cosf(azimuth) + frame.binormal() * libm::sinf(azimuth);
+            (Quat::from_axis_angle(axis, angle) * heading).normalize_or(heading)
+        };
+        let next = position + internode * step;
         frame = frame.transport(position, next, heading);
         position = next;
         nodes.push(Node::at(position));
