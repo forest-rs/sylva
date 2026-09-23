@@ -41,7 +41,7 @@ Species(
             ),
             // Secondary branches along the limbs.
             (
-                count: PerMetre(2.2),
+                count: PerMetre(3.5),
                 span: (0.15, 1.0),
                 arrangement: Spiral(divergence: 2.39996),
                 roll_jitter: 0.4,
@@ -60,10 +60,19 @@ Species(
                     kink_interval: 0.45,
                     kink_jitter: 0.6,
                 ),
+                // Spur shoots along the outer half of each branch.
+                sites: Some((
+                    per_metre: 10.0,
+                    span: (0.45, 1.0),
+                    kind: 0,
+                    angle: 1.0,
+                    tip_cluster: 7,
+                    cluster_span: 0.1,
+                )),
             ),
             // Twigs carrying the leaf sites.
             (
-                count: PerMetre(7.0),
+                count: PerMetre(15.0),
                 span: (0.2, 1.0),
                 arrangement: Spiral(divergence: 2.39996),
                 roll_jitter: 0.5,
@@ -85,11 +94,11 @@ Species(
                 // A few leaves along each twig and a whorl crowded at its tip, as
                 // oak carries them.
                 sites: Some((
-                    per_metre: 6.0,
-                    span: (0.3, 1.0),
+                    per_metre: 14.0,
+                    span: (0.15, 1.0),
                     kind: 0,
                     angle: 0.9,
-                    tip_cluster: 7,
+                    tip_cluster: 9,
                     cluster_span: 0.15,
                 )),
             ),
@@ -114,7 +123,7 @@ Species(
     foliage: Some((
         site_kind: 0,
         shape: (
-            length: 0.1,
+            length: 0.12,
             width: 0.6,
             widest_at: 0.65,
             tip: 0.6,
@@ -123,7 +132,7 @@ Species(
             petiole: 0.006,
             fold: 0.15,
             curl: 0.08,
-            stations: 32,
+            stations: 16,
         ),
         variants: 4,
         variation: (size: 0.2, width: 0.15, lobe_depth: 0.25),

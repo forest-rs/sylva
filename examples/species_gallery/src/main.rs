@@ -159,7 +159,8 @@ fn leaves_obj(foliage: &Foliage) -> Result<String, std::fmt::Error> {
     instances_obj(&templates, &foliage.instances)
 }
 
-/// Writes leaf instances of `templates` as one OBJ with UVs.
+/// Writes leaf instances of `templates` as one OBJ with UVs and, as vertex
+/// normals, each leaf's canopy normal, so the crown shades as one soft volume.
 fn instances_obj(
     templates: &[&exedra_mesh::Mesh],
     instances: &[sylva_foliage::LeafInstance],
@@ -176,12 +177,14 @@ fn instances_obj(
         for (p, uv) in tri.positions.iter().zip(&tri.uvs) {
             let world = leaf.position
                 + leaf.rotation * (sylva_skeleton::glam::Vec3::from_array(*p) * leaf.scale);
+            let n = leaf.canopy_normal;
             writeln!(out, "v {} {} {}", world.x, world.y, world.z)?;
             writeln!(out, "vt {} {}", uv[0], 1.0 - uv[1])?;
+            writeln!(out, "vn {} {} {}", n.x, n.y, n.z)?;
         }
         for face in tri.indices.as_chunks::<3>().0 {
             let [a, b, c] = face.map(|i| i + base);
-            writeln!(faces, "f {a}/{a} {b}/{b} {c}/{c}")?;
+            writeln!(faces, "f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}")?;
         }
         base += u32::try_from(tri.positions.len()).expect("small templates");
     }

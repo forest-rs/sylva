@@ -10,7 +10,9 @@ and renders them two-sided. When the species' generated textures exist
 (`../textures/<species>-bark/gltf` and `-leaf/gltf`), bark and leaves show
 their base colour; otherwise they are flat brown and green. Writes `tree.png`
 (whole tree), `tree-leaves.png` (the crown edge) and `tree-bark.png` (the
-trunk base) next to the input.
+trunk base) next to the input, all in Workbench for geometry review, then
+`tree-lit.png`: the whole tree in EEVEE under a sun and sky, with two-sided,
+translucent leaves, closer to how a summer crown reads.
 """
 
 import math
@@ -127,6 +129,51 @@ def main():
         scene.render.filepath = str(out_dir / filename)
         bpy.ops.render.render(write_still=True)
         print(f"wrote {scene.render.filepath}")
+    render_lit(scene, objects, out_dir, center, size)
+
+
+def render_lit(scene, objects, out_dir, center, size):
+    """The whole tree in EEVEE: sun and sky light, translucent leaves."""
+    scene.render.engine = "BLENDER_EEVEE"
+    world = scene.world
+    world.use_nodes = True
+    background = world.node_tree.nodes["Background"]
+    background.inputs[0].default_value = (0.62, 0.72, 0.85, 1.0)
+    background.inputs[1].default_value = 0.8
+    sun = bpy.data.lights.new("sun", "SUN")
+    sun.energy = 4.0
+    sun_obj = bpy.data.objects.new("sun", sun)
+    sun_obj.rotation_euler = (math.radians(40), 0.0, math.radians(-30))
+    scene.collection.objects.link(sun_obj)
+    if len(objects) > 1:
+        for material in objects[1].data.materials:
+            translucent(material)
+    cam = add_camera(scene, center, size * 1.3, math.radians(-60), math.radians(10), "lit")
+    scene.camera = cam
+    scene.render.filepath = str(out_dir / "tree-lit.png")
+    bpy.ops.render.render(write_still=True)
+    print(f"wrote {scene.render.filepath}")
+
+
+def translucent(material):
+    """Mixes a translucent lobe, tinted by the leaf colour, into a leaf."""
+    if material is None or not material.use_nodes:
+        return
+    nodes = material.node_tree.nodes
+    links = material.node_tree.links
+    bsdf = nodes["Principled BSDF"]
+    output = nodes["Material Output"]
+    back = nodes.new("ShaderNodeBsdfTranslucent")
+    mix = nodes.new("ShaderNodeMixShader")
+    mix.inputs["Fac"].default_value = 0.35
+    color = bsdf.inputs["Base Color"]
+    if color.links:
+        links.new(color.links[0].from_socket, back.inputs["Color"])
+    else:
+        back.inputs["Color"].default_value = color.default_value
+    links.new(bsdf.outputs["BSDF"], mix.inputs[1])
+    links.new(back.outputs["BSDF"], mix.inputs[2])
+    links.new(mix.outputs["Shader"], output.inputs["Surface"])
 
 
 main()

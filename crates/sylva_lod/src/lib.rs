@@ -100,9 +100,12 @@ pub struct LodPolicy {
 }
 
 impl Default for LodPolicy {
-    /// Four levels for a broadleaf, then an impostor: full detail, a lighter
-    /// mesh, coarse bark with a card per twig cluster, and scaffold bark with
-    /// a card per branch cluster.
+    /// Four levels for a broadleaf, then an impostor: full bark with a card
+    /// per leaf, lighter bark with a leaf-area-preserving subset of leaf
+    /// cards, coarse bark with a card per twig cluster, and scaffold bark
+    /// with a card per branch cluster. Leaves are alpha-tested cards from the
+    /// finest level, as in real-time trees; [`LeafDetail::Mesh`] draws folded
+    /// blades where the budget allows.
     fn default() -> Self {
         let base = MeshParams::default();
         let rings = |segments_per_metre, min_segments, max_segments| RingResolution {
@@ -124,7 +127,7 @@ impl Default for LodPolicy {
                     stations: base.stations,
                     min_branch_radius: 0.0,
                     leaf_fraction: 1.0,
-                    leaf_detail: LeafDetail::Mesh { stations: 32 },
+                    leaf_detail: LeafDetail::Card,
                     clusters: None,
                 },
                 LodLevel {
@@ -134,7 +137,7 @@ impl Default for LodPolicy {
                     stations: stations(0.3, 1.5),
                     min_branch_radius: 0.006,
                     leaf_fraction: 0.6,
-                    leaf_detail: LeafDetail::Mesh { stations: 8 },
+                    leaf_detail: LeafDetail::Card,
                     clusters: None,
                 },
                 LodLevel {
