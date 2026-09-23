@@ -76,7 +76,28 @@ impl LeafShape {
         )?;
         check(self.fold.is_finite() && self.fold.abs() < 1.5, "shape.fold")?;
         check(self.curl.is_finite(), "shape.curl")?;
-        check((3..=1024).contains(&self.stations), "shape.stations")
+        check((3..=1024).contains(&self.stations), "shape.stations")?;
+        check(
+            self.auricle.is_finite() && (0.0..0.5).contains(&self.auricle),
+            "shape.auricle",
+        )?;
+        check(
+            self.lobe_skew.is_finite()
+                && (0.0..2.0).contains(&self.lobe_skew)
+                && self.lobe_skew * self.max_half_width() < self.length,
+            "shape.lobe_skew",
+        )?;
+        // The swept margin must still advance from station to station, or
+        // the blade strip would fold over itself.
+        let ts = self.station_ts();
+        let margin = |t: f32| {
+            self.skewed(glam::Vec2::new(self.half_width(t), t * self.length))
+                .y
+        };
+        check(
+            ts.windows(2).all(|w| margin(w[1]) > margin(w[0])),
+            "shape.lobe_skew",
+        )
     }
 }
 

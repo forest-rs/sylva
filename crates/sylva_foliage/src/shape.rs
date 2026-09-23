@@ -20,9 +20,17 @@ use glam::Vec2;
 ///
 /// `envelope` is a unimodal profile, zero at base and tip and 1 at
 /// `widest_at`; `lobing` cuts narrow sinuses of relative depth `lobe_depth`
-/// between broad rounded lobes along each side, deepest mid-blade. Because the outline is a function of `t`,
-/// the leaf mesh, the card and the coverage mask all derive from this one
-/// function and cannot disagree.
+/// between broad rounded lobes along each side, deepest mid-blade. An
+/// optional `auricle` adds a small rounded ear on each side of the base.
+///
+/// The blade then sweeps forward: [`LeafShape::skewed`] moves every point
+/// toward the tip in proportion to its distance from the midrib, by
+/// `lobe_skew`, tapering to nothing at the tip. Lobe tips, far from the
+/// midrib, move further than the sinuses between them, so lobes point
+/// toward the tip as an oak's do. The midrib does not move.
+///
+/// The leaf mesh, the card and the coverage mask all derive from this one
+/// outline ([`LeafShape::contains`]) and cannot disagree.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(default))]
@@ -51,6 +59,13 @@ pub struct LeafShape {
     pub curl: f32,
     /// Stations along the midrib for meshing; at least 3.
     pub stations: u32,
+    /// Forward sweep of the blade toward the tip, in `[0, 2)`: a point at
+    /// distance `x` from the midrib moves `lobe_skew * |x|` toward the tip,
+    /// tapering to zero there. 0 keeps lobes square to the midrib.
+    pub lobe_skew: f32,
+    /// Half-width of the basal ears, as a fraction of the length; 0 for
+    /// none.
+    pub auricle: f32,
 }
 
 impl Default for LeafShape {
@@ -67,6 +82,8 @@ impl Default for LeafShape {
             fold: 0.15,
             curl: 0.08,
             stations: 32,
+            lobe_skew: 0.5,
+            auricle: 0.04,
         }
     }
 }
@@ -79,7 +96,42 @@ impl LeafShape {
         if !(0.0..=1.0).contains(&t) {
             return 0.0;
         }
-        0.5 * self.width * self.length * self.envelope(t) * self.lobing(t)
+        let blade = 0.5 * self.width * self.length * self.envelope(t) * self.lobing(t);
+        blade + self.auricle * self.length * Self::ear(t)
+    }
+
+    /// The basal ear profile: one rounded bump over the first 15% of the
+    /// blade.
+    fn ear(t: f32) -> f32 {
+        const SPAN: f32 = 0.15;
+        if t >= SPAN {
+            return 0.0;
+        }
+        let s = libm::sinf(PI * t / SPAN);
+        s * s
+    }
+
+    /// Moves a point of the unswept blade (`y = t * length`) to the swept
+    /// blade: `y + lobe_skew * |x| * (1 - y / length)`.
+    #[must_use]
+    pub fn skewed(&self, p: Vec2) -> Vec2 {
+        let a = self.lobe_skew * p.x.abs();
+        Vec2::new(p.x, p.y + a * (1.0 - p.y / self.length))
+    }
+
+    /// The inverse of [`Self::skewed`].
+    #[must_use]
+    pub fn unskewed(&self, p: Vec2) -> Vec2 {
+        let a = self.lobe_skew * p.x.abs();
+        Vec2::new(p.x, (p.y - a) / (1.0 - a / self.length))
+    }
+
+    /// True when leaf-plane point `p` lies on the (swept) blade.
+    #[must_use]
+    pub fn contains(&self, p: Vec2) -> bool {
+        let flat = self.unskewed(p);
+        let t = flat.y / self.length;
+        (0.0..=1.0).contains(&t) && p.x.abs() <= self.half_width(t)
     }
 
     /// Unimodal profile `t^p (1 - t)^q`, normalized to 1 at `widest_at`.
@@ -107,7 +159,7 @@ impl LeafShape {
     /// Largest half-width the outline can reach: the mask and card bounds.
     #[must_use]
     pub fn max_half_width(&self) -> f32 {
-        0.5 * self.width * self.length
+        (0.5 * self.width + self.auricle) * self.length
     }
 
     /// Midrib parameters of the meshing stations, from 0 to 1.
@@ -125,14 +177,14 @@ impl LeafShape {
         let ts = self.station_ts();
         let mut points: Vec<Vec2> = ts
             .iter()
-            .map(|&t| Vec2::new(self.half_width(t), t * self.length))
+            .map(|&t| self.skewed(Vec2::new(self.half_width(t), t * self.length)))
             .collect();
         points.extend(
             ts.iter()
                 .rev()
                 .skip(1)
                 .take(ts.len() - 2)
-                .map(|&t| Vec2::new(-self.half_width(t), t * self.length)),
+                .map(|&t| self.skewed(Vec2::new(-self.half_width(t), t * self.length))),
         );
         points
     }
@@ -173,7 +225,7 @@ impl LeafMask {
 /// Rasterizes `shape` into a `size x size` coverage mask in its UV frame.
 ///
 /// Each texel's coverage is the fraction of 4 x 4 stratified samples inside
-/// the outline, tested exactly against [`LeafShape::half_width`].
+/// the outline, tested exactly with [`LeafShape::contains`].
 #[must_use]
 pub fn leaf_mask(shape: &LeafShape, size: u32) -> LeafMask {
     const SUB: u32 = 4;
@@ -192,7 +244,7 @@ pub fn leaf_mask(shape: &LeafShape, size: u32) -> LeafMask {
                         (row as f32 + (sy as f32 + 0.5) / sub) / n,
                     );
                     let x = (u - 0.5) * 2.0 * half;
-                    if x.abs() <= shape.half_width(v) {
+                    if shape.contains(Vec2::new(x, v * shape.length)) {
                         inside += 1;
                     }
                 }

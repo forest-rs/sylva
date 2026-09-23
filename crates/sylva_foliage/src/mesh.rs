@@ -76,7 +76,7 @@ pub fn leaf_mesh(shape: &LeafShape) -> Result<Mesh, FoliageError> {
     shape.validate()?;
     let ts = shape.station_ts();
     let at = |t: f32, side: f32| {
-        let flat = Vec2::new(side * shape.half_width(t), t * shape.length);
+        let flat = shape.skewed(Vec2::new(side * shape.half_width(t), t * shape.length));
         (flat, shaped(shape, flat))
     };
     let base = at(0.0, 0.0);

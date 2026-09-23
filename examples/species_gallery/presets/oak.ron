@@ -133,6 +133,9 @@ Species(
             fold: 0.15,
             curl: 0.08,
             stations: 16,
+            // Lobes point toward the tip; small ears at the base.
+            lobe_skew: 0.5,
+            auricle: 0.04,
         ),
         variants: 4,
         variation: (size: 0.2, width: 0.15, lobe_depth: 0.25),

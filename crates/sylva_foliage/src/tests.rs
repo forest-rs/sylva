@@ -5,7 +5,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use exedra_mesh::ExtractParams;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use sylva_skeleton::passes::{FrameParams, PipeModel, compute_frames, pipe_model_radii};
 use sylva_skeleton::{Branch, BranchId, Frame, Node, Site, Skeleton};
 
@@ -78,7 +78,10 @@ fn the_blade_mesh_stays_inside_its_own_outline() {
     for uv in &tri.uvs {
         assert!((0.0..=1.0).contains(&uv[0]) && (0.0..=1.0).contains(&uv[1]));
         let x = (uv[0] - 0.5) * 2.0 * half;
-        assert!(x.abs() <= shape.half_width(uv[1]) + 1e-6, "UV on the blade");
+        // Margin vertices lie on the outline; nudged toward the midrib they
+        // are inside it.
+        let p = Vec2::new(x * (1.0 - 1e-4), uv[1] * shape.length);
+        assert!(shape.contains(p), "UV on the blade");
     }
     // Folded halves rise; the tip droops.
     let tip = tri
@@ -211,6 +214,68 @@ fn invalid_foliage_is_refused() {
         leaf_mesh(&shape).err(),
         Some(FoliageError::Params {
             name: "shape.widest_at"
+        })
+    );
+}
+
+#[test]
+fn lobes_sweep_toward_the_tip() {
+    let square = LeafShape {
+        lobe_skew: 0.0,
+        auricle: 0.0,
+        ..LeafShape::default()
+    };
+    let swept = LeafShape::default();
+    assert!(
+        swept.lobe_skew > 0.0 && swept.auricle > 0.0,
+        "the oak default sweeps"
+    );
+    // The midrib stays; margin points move tipward by skew * |x| * (1 - t).
+    let mid = Vec2::new(0.0, 0.05);
+    assert_eq!(swept.skewed(mid), mid);
+    let p = Vec2::new(0.02, 0.05);
+    let q = swept.skewed(p);
+    assert!(q.y > p.y && q.x == p.x);
+    assert!((swept.unskewed(q) - p).length() < 1e-6, "skew inverts");
+    // The frame still bounds the outline, and the tip stays put.
+    let outline = swept.outline();
+    let half = swept.max_half_width();
+    for point in &outline {
+        assert!(point.x.abs() <= half + 1e-6);
+        assert!((0.0..=swept.length + 1e-6).contains(&point.y));
+    }
+    // Each lobe tip (local width maximum) sits further toward the tip than
+    // its station on the unswept blade.
+    let lobe_tip = |shape: &LeafShape| {
+        let ts: Vec<f32> = (0..=400).map(|i| i as f32 / 400.0).collect();
+        let t = ts
+            .iter()
+            .copied()
+            .filter(|&t| (0.3..0.6).contains(&t))
+            .max_by(|&a, &b| shape.half_width(a).total_cmp(&shape.half_width(b)))
+            .expect("a lobe");
+        shape
+            .skewed(Vec2::new(shape.half_width(t), t * shape.length))
+            .y
+    };
+    assert!(lobe_tip(&swept) > lobe_tip(&square) + 0.004);
+    // Mask, mesh and outline agree: masks differ once the blade sweeps.
+    assert_ne!(leaf_mask(&square, 64), leaf_mask(&swept, 64));
+    // Basal ears widen the base.
+    assert!(swept.half_width(0.07) > square.half_width(0.07));
+}
+
+#[test]
+fn folding_sweeps_are_refused() {
+    let folded = LeafShape {
+        lobe_skew: 1.5,
+        lobe_depth: 0.8,
+        ..LeafShape::default()
+    };
+    assert_eq!(
+        leaf_mesh(&folded).err(),
+        Some(FoliageError::Params {
+            name: "shape.lobe_skew"
         })
     );
 }

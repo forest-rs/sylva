@@ -117,7 +117,8 @@ impl LeafRecipe {
             let start = Vec2::new(0.0, (t - 0.12).max(0.02) * l);
             let reach = 0.85 * shape.half_width(t);
             for side in [-1.0, 1.0] {
-                veins.push((start, Vec2::new(side * reach, t * l), 0.5 * w));
+                let end = shape.skewed(Vec2::new(side * reach, t * l));
+                veins.push((start, end, 0.5 * w));
             }
         }
         veins
