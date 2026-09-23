@@ -1,0 +1,18 @@
+[package]
+name = "sylva_skeleton"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Skeleton IR for procedural trees: branches, stable IDs, keyed randomness and shared post-passes"
+keywords = ["procedural", "tree", "vegetation", "no_std"]
+categories = ["graphics", "game-development", "no-std"]
+publish = false
+
+[dependencies]
+glam.workspace = true
+libm.workspace = true
+
+[lints]
+workspace = true
