@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/sylva_skeleton",
+    "examples/skeleton_dump",
 ]
 
 [workspace.package]

@@ -12,6 +12,11 @@ The design lives in [`docs/design.md`](docs/design.md).
   growth backend. Branches, stable path-hashed IDs, keyed randomness, and the
   shared pipe-model radius and rotation-minimizing frame passes.
 
+Examples live in `examples/`:
+
+- **[skeleton_dump](examples/skeleton_dump/)**: writes a debug OBJ of a small
+  generated skeleton and renders it with Blender for visual review.
+
 ## Minimum supported Rust version
 
 Sylva's MSRV is 1.92.

@@ -1,0 +1,16 @@
+[package]
+name = "skeleton_dump"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Writes a debug OBJ of a sylva skeleton for visual review"
+publish = false
+
+[dependencies]
+glam.workspace = true
+sylva_skeleton.workspace = true
+
+[lints]
+workspace = true
