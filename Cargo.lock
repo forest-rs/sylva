@@ -18,12 +18,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "exedra_math"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/exedra?rev=e286bcbebdfd86e2bc0e385c9557faede85a48f3#e286bcbebdfd86e2bc0e385c9557faede85a48f3"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "exedra_mesh"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/exedra?rev=e286bcbebdfd86e2bc0e385c9557faede85a48f3#e286bcbebdfd86e2bc0e385c9557faede85a48f3"
+dependencies = [
+ "exedra_math",
+ "exedra_triangulate",
+ "hashbrown",
+ "invalidation",
+ "libm",
+]
+
+[[package]]
+name = "exedra_triangulate"
+version = "0.1.0"
+source = "git+https://github.com/forest-rs/exedra?rev=e286bcbebdfd86e2bc0e385c9557faede85a48f3#e286bcbebdfd86e2bc0e385c9557faede85a48f3"
+
+[[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
 name = "glam"
 version = "0.33.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0990707078259d76f65619a692e87c82645be66cbee224173cd1af151e54ba2"
 dependencies = [
  "libm",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = [
+ "foldhash",
+]
+
+[[package]]
+name = "invalidation"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2217040acf2f123ec9ed6c37c368ba66d1e5a9f2048478c1fdd861bb5cfdecd"
+dependencies = [
+ "hashbrown",
 ]
 
 [[package]]
@@ -105,8 +154,10 @@ dependencies = [
 name = "species_gallery"
 version = "0.0.0"
 dependencies = [
+ "exedra_mesh",
  "ron",
  "skeleton_dump",
+ "sylva_mesh",
  "sylva_species",
 ]
 
@@ -116,6 +167,16 @@ version = "0.0.1"
 dependencies = [
  "libm",
  "serde",
+ "sylva_skeleton",
+]
+
+[[package]]
+name = "sylva_mesh"
+version = "0.0.1"
+dependencies = [
+ "exedra_mesh",
+ "glam",
+ "libm",
  "sylva_skeleton",
 ]
 

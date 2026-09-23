@@ -1,0 +1,20 @@
+[package]
+name = "sylva_mesh"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Branch surface meshing for sylva skeletons: bark rings, UVs, junctions and root flare"
+keywords = ["procedural", "tree", "vegetation", "mesh", "no_std"]
+categories = ["graphics", "game-development", "no-std"]
+publish = false
+
+[dependencies]
+exedra_mesh.workspace = true
+glam.workspace = true
+libm.workspace = true
+sylva_skeleton.workspace = true
+
+[lints]
+workspace = true
