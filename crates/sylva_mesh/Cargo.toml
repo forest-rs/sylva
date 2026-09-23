@@ -12,6 +12,7 @@ publish = false
 
 [dependencies]
 exedra_mesh.workspace = true
+exedra_mesh_ops.workspace = true
 glam.workspace = true
 libm.workspace = true
 sylva_skeleton.workspace = true

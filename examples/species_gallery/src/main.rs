@@ -22,7 +22,10 @@
 //! `cargo clean`; `target/` holds build artifacts only.
 //!
 //! `--seeds 1,3` grows only those seeds, and `--tree-only` skips the LOD
-//! chain, card bakes and glTF export, for quick crown iteration.
+//! chain, card bakes and glTF export, for quick crown iteration. `--welded`
+//! also meshes the bark with major forks welded, as `bark-welded.obj` with
+//! the forks in `forks.json`; `render_forks.py` compares them close up
+//! against the embedded bark.
 //!
 //! `bark.obj` carries positions, bark UVs and the authored normals;
 //! `render_bark.py` shows it with a UV grid so seams and texel density are
@@ -53,7 +56,7 @@ use sylva_lod::{
     Atlas, AtlasSettings, CardMaterials, Impostor, ImpostorLayout, ImpostorPolicy, LodPolicy,
     bake_clusters, bake_impostor, build_lods,
 };
-use sylva_mesh::{BRANCH_LAYER, MeshParams, mesh_skeleton};
+use sylva_mesh::{BRANCH_LAYER, Junction, MeshParams, Weld, mesh_skeleton};
 use sylva_texture::{LeafRecipe, bark, leaf};
 
 use skeleton_dump::{skeleton_json, skeleton_obj};
@@ -68,6 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out_dir = PathBuf::from(".local/gallery/species-gallery");
     let mut seeds = SEEDS.to_vec();
     let mut tree_only = false;
+    let mut welded = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -76,6 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 seeds = list.split(',').map(str::parse).collect::<Result<_, _>>()?;
             }
             "--tree-only" => tree_only = true,
+            "--welded" => welded = true,
             _ => out_dir = PathBuf::from(arg),
         }
     }
@@ -98,6 +103,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
         let mesh_elapsed = meshed.elapsed();
         std::fs::write(dir.join("bark.obj"), bark_obj(&tri)?)?;
+        if welded {
+            write_welded(&dir, &grown.skeleton)?;
+        }
         let mesh = &bark.report;
         let leaves = match &species.foliage {
             Some(params) => {
@@ -163,6 +171,88 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         print!("{stats}");
     }
     println!("wrote {}", out_dir.display());
+    Ok(())
+}
+
+/// Meshes the bark again with major forks welded, writing it as
+/// `bark-welded.obj` and the forks as `forks.json`: one entry per major fork
+/// (welded or refused) with its center, parent radius and child branch.
+fn write_welded(
+    dir: &std::path::Path,
+    skeleton: &sylva_skeleton::Skeleton,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let params = MeshParams {
+        junction: Junction::Welded(Weld::default()),
+        ..MeshParams::default()
+    };
+    let started = Instant::now();
+    let bark = mesh_skeleton(skeleton, &params)?;
+    let (tri, _) = bark.mesh.to_trimesh(&ExtractParams {
+        normals: NormalsSource::CustomOnly,
+        attributes: vec![ExtractAttribute::new(BRANCH_LAYER, u32::MAX)],
+        ..ExtractParams::default()
+    });
+    let elapsed = started.elapsed();
+    std::fs::write(dir.join("bark-welded.obj"), bark_obj(&tri)?)?;
+    let branches = skeleton.branches();
+    let fork = |branch: u32, welded: bool| -> Option<String> {
+        let child = branches.get(branch as usize)?;
+        let attachment = child.parent?;
+        let sample = skeleton.branch(attachment.parent)?.sample(attachment.t);
+        let (p, t, d) = (
+            sample.position,
+            sample.frame.tangent,
+            child.nodes[0].frame.tangent,
+        );
+        Some(format!(
+            "{{\"branch\":{branch},\"welded\":{welded},\"center\":[{},{},{}],\
+             \"parent_tangent\":[{},{},{}],\"child_tangent\":[{},{},{}],\
+             \"parent_radius\":{},\"child_radius\":{}}}",
+            p.x, p.y, p.z, t.x, t.y, t.z, d.x, d.y, d.z, sample.radius, child.nodes[0].radius
+        ))
+    };
+    let forks: Vec<String> = bark
+        .welds
+        .iter()
+        .filter_map(|&b| fork(b, true))
+        .chain(
+            bark.weld_refusals
+                .iter()
+                .filter_map(|r| fork(r.branch, false)),
+        )
+        .collect();
+    let r = &bark.report;
+    let json = format!(
+        "{{\"welded\":{},\"fallbacks\":{},\"builds\":{},\"triangles\":{},\"skin_quads\":{},\"skin_triangles\":{},\"mesh_us\":{},\"forks\":[{}]}}\n",
+        r.welded_junctions,
+        r.weld_fallbacks,
+        r.builds,
+        r.triangles(),
+        r.skin_quads,
+        r.skin_triangles,
+        elapsed.as_micros(),
+        forks.join(",")
+    );
+    std::fs::write(dir.join("forks.json"), &json)?;
+    let mut reasons: Vec<String> = bark
+        .weld_refusals
+        .iter()
+        .map(|r| format!("{:?}", r.error))
+        .map(|e| {
+            e.split([' ', '{', '('])
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect();
+    reasons.sort();
+    reasons.dedup();
+    println!(
+        "welded {} forks, {} refused ({})",
+        r.welded_junctions,
+        r.weld_fallbacks,
+        reasons.join(", ")
+    );
     Ok(())
 }
 

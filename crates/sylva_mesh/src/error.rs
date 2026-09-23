@@ -72,17 +72,26 @@ impl MeshParams {
         bad(positive(self.stations.max_bend), "stations.max_bend")?;
         bad(positive(self.stations.max_spacing), "stations.max_spacing")?;
         bad(positive(self.bark.tile_size), "bark.tile_size")?;
-        match self.junction {
-            Junction::Embedded(c) => {
-                bad(c.length.is_finite() && c.length >= 0.0, "junction.length")?;
-                bad(positive(c.flare), "junction.flare")?;
+        let c = match self.junction {
+            Junction::Embedded(c) => c,
+            Junction::Welded(w) => {
+                bad(positive(w.min_ratio), "junction.min_ratio")?;
                 bad(
-                    (0.0..=1.0).contains(&c.normal_blend),
-                    "junction.normal_blend",
+                    w.min_radius.is_finite() && w.min_radius >= 0.0,
+                    "junction.min_radius",
                 )?;
-                bad(c.rings <= 64, "junction.rings")?;
+                bad(positive(w.parent_reach), "junction.parent_reach")?;
+                bad(positive(w.child_reach), "junction.child_reach")?;
+                w.collar
             }
-        }
+        };
+        bad(c.length.is_finite() && c.length >= 0.0, "junction.length")?;
+        bad(positive(c.flare), "junction.flare")?;
+        bad(
+            (0.0..=1.0).contains(&c.normal_blend),
+            "junction.normal_blend",
+        )?;
+        bad(c.rings <= 64, "junction.rings")?;
         if let Some(f) = self.root_flare {
             bad(positive(f.height), "root_flare.height")?;
             bad(f.flare.is_finite() && f.flare >= 0.0, "root_flare.flare")?;

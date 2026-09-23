@@ -12,7 +12,7 @@ use sylva_skeleton::{Attachment, Branch, BranchId, Node, Skeleton};
 
 use crate::{
     BRANCH_LAYER, Collar, Junction, MeshError, MeshParams, RingResolution, RootFlare, Stations,
-    mesh_skeleton,
+    Weld, mesh_skeleton,
 };
 
 /// A vertical four-metre trunk with nodes every `step` metres, and
@@ -376,4 +376,167 @@ fn segment_counts_follow_the_taper_without_cracks() {
     let rings_at_seam = tri.uvs.iter().filter(|uv| uv[0] == repeats).count();
     let rings_at_zero = tri.uvs.iter().filter(|uv| uv[0] == 0.0).count();
     assert_eq!(rings_at_seam, rings_at_zero, "every ring closes its seam");
+}
+
+/// A trunk forking at its middle into a child leaning `angle` radians off
+/// the trunk, toward +X.
+fn fork(angle: f32) -> Skeleton {
+    let trunk = BranchId::root(0);
+    let mut skeleton = Skeleton::new();
+    #[expect(clippy::cast_precision_loss, reason = "test node counts are small")]
+    let nodes = (0..=16)
+        .map(|i| Node::at(Vec3::new(0.0, 0.0, 0.25 * i as f32)))
+        .collect();
+    skeleton
+        .push_branch(Branch {
+            id: trunk,
+            order: 0,
+            parent: None,
+            nodes,
+        })
+        .expect("trunk");
+    let direction = Vec3::new(libm::sinf(angle), 0.0, libm::cosf(angle));
+    #[expect(clippy::cast_precision_loss, reason = "test node counts are small")]
+    let nodes = (0..=8)
+        .map(|i| Node::at(Vec3::new(0.0, 0.0, 2.0) + direction * (0.25 * i as f32)))
+        .collect();
+    skeleton
+        .push_branch(Branch {
+            id: trunk.child(1, 0),
+            order: 1,
+            parent: Some(Attachment {
+                parent: trunk,
+                t: 0.5,
+            }),
+            nodes,
+        })
+        .expect("child");
+    compute_frames(&mut skeleton, &FrameParams::default());
+    pipe_model_radii(
+        &mut skeleton,
+        &PipeModel {
+            tip_radius: 0.04,
+            exponent: 2.0,
+            ..PipeModel::default()
+        },
+    )
+    .expect("radii");
+    skeleton
+}
+
+fn welded(weld: Weld) -> MeshParams {
+    MeshParams {
+        junction: Junction::Welded(weld),
+        ..plain()
+    }
+}
+
+#[test]
+fn welded_forks_close_the_parent_opening_with_an_authored_skin() {
+    let skeleton = fork(1.0);
+    let bark = mesh_skeleton(
+        &skeleton,
+        &welded(Weld {
+            min_ratio: 0.1,
+            ..Weld::default()
+        }),
+    )
+    .expect("mesh");
+    let r = bark.report;
+    assert_eq!(bark.weld_refusals, vec![]);
+    assert_eq!(bark.welds, vec![1]);
+    assert_eq!((r.welded_junctions, r.weld_fallbacks, r.builds), (1, 0, 1));
+    assert!(r.skin_quads > 0);
+    assert!(bark.mesh.validate_fast().is_empty(), "valid topology");
+    // Only the trunk's base stays open: the child and both trunk pieces are
+    // joined by the skin.
+    let loops = bark.mesh.boundary_loops().expect("boundary loops");
+    assert_eq!(loops.len(), 1, "only the ground ring is open");
+    let tri = extract(&bark.mesh);
+    assert_eq!(tri.indices.len() as u64, 3 * r.triangles());
+    for n in &tri.normals {
+        let len = Vec3::from_array(*n).length();
+        assert!((len - 1.0).abs() < 1e-4, "every corner is authored: {len}");
+    }
+    let Some(AttributeBuffer::U32(branches)) = tri.attribute(BRANCH_LAYER) else {
+        panic!("branch provenance is extracted");
+    };
+    assert!(branches.iter().all(|&b| b < 2), "every vertex has a branch");
+    // The skin continues the trunk's chart across the ring below the fork:
+    // corners meeting there agree exactly, or differ by whole tiles where the
+    // skin's face straddles the chart's U seam.
+    let below = 2.0 - Weld::default().parent_reach * skeleton.branches()[0].sample(0.5).radius;
+    let mesh = &bark.mesh;
+    let at_ring = |v: Option<exedra_mesh::VertexId>| {
+        v.and_then(|v| mesh.vertex_position(v))
+            .is_some_and(|p| (p[2] - below).abs() < 1e-4)
+    };
+    let ring: Vec<_> = mesh
+        .half_edges()
+        .filter(|&e| at_ring(mesh.from_vertex(e)) && at_ring(mesh.to_vertex(e)))
+        .collect();
+    assert!(!ring.is_empty(), "the ring below the fork is found");
+    let layer = mesh
+        .attrs()
+        .sparse(exedra_mesh::attr::CORNER_UV)
+        .expect("uvs");
+    let uv = |corner: exedra_mesh::HalfEdgeId| *layer.get(corner.as_id()).expect("corner uv");
+    let mut whole_tile_steps = 0;
+    for &edge in &ring {
+        let twin = mesh.twin(edge).expect("twin");
+        for (a, b) in [
+            (edge, mesh.prev(twin).expect("prev")),
+            (twin, mesh.prev(edge).expect("prev")),
+        ] {
+            let (a, b) = (uv(a), uv(b));
+            assert_eq!(a[1], b[1], "V agrees exactly");
+            let du = a[0] - b[0];
+            assert_eq!(du, libm::roundf(du), "U agrees up to whole tiles");
+            whole_tile_steps += usize::from(du != 0.0);
+        }
+    }
+    assert!(whole_tile_steps <= 4, "only the seam-straddling face steps");
+}
+
+#[test]
+fn refused_welds_fall_back_to_the_embedded_collar() {
+    // A child hugging its parent cannot be cleared at short reaches.
+    let skeleton = fork(0.15);
+    let weld = Weld {
+        min_ratio: 0.1,
+        parent_reach: 1.0,
+        child_reach: 1.0,
+        ..Weld::default()
+    };
+    let bark = mesh_skeleton(&skeleton, &welded(weld)).expect("mesh");
+    let r = bark.report;
+    assert_eq!((r.welded_junctions, r.weld_fallbacks, r.builds), (0, 1, 2));
+    assert_eq!(bark.weld_refusals.len(), 1);
+    assert_eq!(bark.weld_refusals[0].branch, 1);
+    assert_eq!(r.skin_quads + r.skin_triangles, 0);
+    let embedded = mesh_skeleton(
+        &skeleton,
+        &MeshParams {
+            junction: Junction::Embedded(weld.collar),
+            ..plain()
+        },
+    )
+    .expect("embedded");
+    assert_eq!(r.triangles(), embedded.report.triangles());
+    assert_eq!(bark.mesh.boundary_loops().expect("loops").len(), 2);
+}
+
+#[test]
+fn minor_children_stay_embedded_under_welding() {
+    let skeleton = fork(1.0);
+    let bark = mesh_skeleton(
+        &skeleton,
+        &welded(Weld {
+            min_ratio: 10.0,
+            ..Weld::default()
+        }),
+    )
+    .expect("mesh");
+    assert_eq!(bark.report.welded_junctions + bark.report.weld_fallbacks, 0);
+    assert!(bark.report.collar_rings > 0);
 }

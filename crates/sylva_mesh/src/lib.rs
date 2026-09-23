@@ -17,7 +17,10 @@
 //! - **Junctions** are a replaceable strategy ([`Junction`]). The
 //!   [`Junction::Embedded`] strategy keeps the child's base inside its
 //!   parent, flares a collar, and blends collar normals toward the parent's
-//!   surface.
+//!   surface. [`Junction::Welded`] opts major forks into a watertight skin
+//!   ([`exedra_mesh_ops::junction`]) that joins the child to an opening in
+//!   its parent, falling back to the embedded collar where the skin is
+//!   refused.
 //! - **Root flare** ([`RootFlare`]) buttresses the base of root stems.
 //! - **Provenance**: [`BRANCH_LAYER`] records each vertex's branch index, for
 //!   inspection and for per-branch tables such as wind pivots.
@@ -58,9 +61,11 @@ mod build;
 mod error;
 mod params;
 
-pub use build::{BRANCH_LAYER, BarkMesh, MeshReport, branch_of, mesh_skeleton};
+pub use build::{BRANCH_LAYER, BarkMesh, MeshReport, WeldRefusal, branch_of, mesh_skeleton};
 pub use error::MeshError;
-pub use params::{BarkMapping, Collar, Junction, MeshParams, RingResolution, RootFlare, Stations};
+pub use params::{
+    BarkMapping, Collar, Junction, MeshParams, RingResolution, RootFlare, Stations, Weld,
+};
 
 #[cfg(test)]
 mod tests;

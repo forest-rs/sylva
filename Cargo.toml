@@ -88,10 +88,11 @@ dapple_graph = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14
 dapple_imaging = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
 dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
 # Exedra is pinned to a reviewed `main` revision until it publishes releases.
-exedra_assembly = { default-features = false, features = ["std"], git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
-exedra_gltf = { git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
-exedra_math = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
-exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
+exedra_assembly = { default-features = false, features = ["std"], git = "https://github.com/forest-rs/exedra", rev = "fe21f0527a70f552557d1e0a425019fd87907141" }
+exedra_gltf = { git = "https://github.com/forest-rs/exedra", rev = "fe21f0527a70f552557d1e0a425019fd87907141" }
+exedra_math = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "fe21f0527a70f552557d1e0a425019fd87907141" }
+exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "fe21f0527a70f552557d1e0a425019fd87907141" }
+exedra_mesh_ops = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "fe21f0527a70f552557d1e0a425019fd87907141" }
 glam = { default-features = false, features = ["libm", "scalar-math"], version = "0.33.7" }
 libm = "0.2.16"
 # OpenPBR parameters are pinned to a reviewed `main` revision until published.

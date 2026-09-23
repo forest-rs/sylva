@@ -3,11 +3,18 @@
 
 //! Ring construction and mesh assembly.
 
+use alloc::vec;
 use alloc::vec::Vec;
 use core::f32::consts::TAU;
 
+use exedra_mesh::attr;
 use exedra_mesh::attributes::{AttrKey, Domain};
-use exedra_mesh::{CornerId, HalfEdgeId, Mesh, MeshBuilder, VertexId, op};
+use exedra_mesh::{
+    ChangeSink, CornerId, EditSession, FaceId, HalfEdgeId, Mesh, MeshBuilder, VertexId, op,
+};
+use exedra_mesh_ops::junction::{
+    JunctionChart, JunctionError, JunctionOutput, JunctionParams, add_junction,
+};
 use glam::Vec3;
 use sylva_skeleton::keyed::tag;
 use sylva_skeleton::{Branch, Frame, Skeleton};
@@ -21,6 +28,9 @@ use crate::{Junction, MeshError, MeshParams, RootFlare};
 /// branch. The index is the provenance link back to the skeleton, and the
 /// key into per-branch tables such as wind pivots.
 pub const BRANCH_LAYER: AttrKey<u32> = AttrKey::new(Domain::Vertex, "sylva.branch");
+
+/// An opening's weld site and the index of the ring below it.
+type GapRing = (usize, usize);
 
 /// A corner's UV and authored normal.
 type CornerData = ([f32; 2], [f32; 3]);
@@ -55,25 +65,97 @@ pub struct MeshReport {
     pub min_segments: u32,
     /// Most segments around any ring.
     pub max_segments: u32,
+    /// Forks joined by a welded skin.
+    pub welded_junctions: u64,
+    /// Major forks whose skin was refused, left embedded instead.
+    pub weld_fallbacks: u64,
+    /// Quads in welded skins.
+    pub skin_quads: u64,
+    /// Triangles in welded skins.
+    pub skin_triangles: u64,
+    /// Crotch center vertices added by welded skins.
+    pub skin_vertices: u64,
+    /// Mesh builds, one more for each round of refused welds.
+    pub builds: u64,
 }
 
 impl MeshReport {
-    /// Triangles after extraction: two per quad, plus transition bands and
-    /// tip fans.
+    /// Triangles after extraction: two per quad, plus transition bands, tip
+    /// fans and welded skins.
     #[must_use]
     pub fn triangles(&self) -> u64 {
-        self.quads * 2 + self.transition_triangles + self.tip_triangles
+        (self.quads + self.skin_quads) * 2
+            + self.transition_triangles
+            + self.tip_triangles
+            + self.skin_triangles
     }
 }
 
 /// Bark surfaces of a skeleton, with their report.
 #[derive(Clone, Debug)]
 pub struct BarkMesh {
-    /// The mesh: one open-based, tip-capped tube per branch, with corner UVs,
-    /// authored corner normals, UV seams and [`BRANCH_LAYER`].
+    /// The mesh: one open-based, tip-capped tube per branch, joined by a skin
+    /// at welded forks, with corner UVs, authored corner normals, UV seams
+    /// and [`BRANCH_LAYER`].
     pub mesh: Mesh,
     /// Deterministic counts.
     pub report: MeshReport,
+    /// Child branches joined to their parent by a welded skin, as indices in
+    /// [`Skeleton::branches`], ascending.
+    pub welds: Vec<u32>,
+    /// Major forks left embedded because their skin was refused, in the
+    /// order they were refused.
+    pub weld_refusals: Vec<WeldRefusal>,
+}
+
+/// A major fork whose welded skin was refused.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeldRefusal {
+    /// The child branch, as its index in [`Skeleton::branches`].
+    pub branch: u32,
+    /// Why the skin was refused.
+    pub error: JunctionError,
+}
+
+/// A fork chosen for welding.
+#[derive(Copy, Clone, Debug)]
+struct WeldSite {
+    child: usize,
+    parent: usize,
+    center: Vec3,
+    /// Parent arc-length interval left open for the skin.
+    gap: (f32, f32),
+    /// Child arc length of its first ring.
+    child_start: f32,
+}
+
+/// Where a branch's tube starts and which parent openings it leaves.
+#[derive(Clone, Debug, Default)]
+struct Layout {
+    /// Arc length of the first ring; nonzero for a welded child.
+    start: f32,
+    /// Openings as (site, from, to) arc lengths, ascending.
+    gaps: Vec<(usize, f32, f32)>,
+}
+
+/// A builder face and one of its loop edges.
+type FaceEdge = (usize, usize);
+
+/// Open rings and bark chart of one emitted tube.
+///
+/// Rings are named by an interior edge on them, which names the open ring
+/// through its twin.
+#[derive(Clone, Debug)]
+struct TubeRings {
+    /// An edge on the base ring.
+    base: FaceEdge,
+    /// Per opening: site, the edges on the rings below and above it, and the
+    /// lower ring's arc length. The lower edge's twin leaves the ring's
+    /// first vertex, which anchors the skin's chart.
+    gaps: Vec<(usize, FaceEdge, FaceEdge, f32)>,
+    repeats: f32,
+    metres_per_v: f32,
+    v_offset: f32,
 }
 
 /// One ring position along a branch.
@@ -91,6 +173,7 @@ enum Profile {
     Plain,
     Collar {
         length: f32,
+        rings: u32,
         flare: f32,
         normal_blend: f32,
         parent_point: Vec3,
@@ -134,6 +217,12 @@ fn fade(s: f32, length: f32) -> f32 {
 /// ground. Ring angle zero follows the skeleton frame's normal, which the
 /// skeleton transports without twist, so rings do not twist either.
 ///
+/// With [`Junction::Welded`], each major fork instead opens its parent
+/// around the fork, starts the child outside the parent, and closes the
+/// three open ends with a junction skin. A refused skin leaves its fork
+/// embedded and is recorded in [`BarkMesh::weld_refusals`]; since refusals
+/// are found on the built mesh, each round of them costs one rebuild.
+///
 /// Surfaces carry corner UVs (see [`BarkMapping`](crate::BarkMapping)), UV
 /// seams tagged on their seam edges, authored corner normals (extract with
 /// `NormalsSource::CustomOnly`), and [`BRANCH_LAYER`].
@@ -147,20 +236,123 @@ fn fade(s: f32, length: f32) -> f32 {
 pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMesh, MeshError> {
     params.validate()?;
     skeleton.validate().map_err(MeshError::Skeleton)?;
+    let sites = weld_sites(skeleton, params);
+    let mut active = vec![true; sites.len()];
+    let mut refusals = Vec::new();
+    let mut builds = 0;
+    loop {
+        builds += 1;
+        let (mut bark, refused) = assemble(skeleton, params, &sites, &active)?;
+        if refused.is_empty() {
+            bark.report.builds = builds;
+            bark.report.weld_fallbacks = refusals.len() as u64;
+            bark.weld_refusals = refusals;
+            return Ok(bark);
+        }
+        // Refusals only reopen embedded forks, which never overlap another
+        // site's opening, so each round strictly shrinks the active set.
+        for (site, error) in refused {
+            active[site] = false;
+            let branch = u32::try_from(sites[site].child).map_err(|_| MeshError::TooLarge)?;
+            refusals.push(WeldRefusal { branch, error });
+        }
+    }
+}
+
+/// Major forks to weld, in branch order.
+///
+/// A child is a major fork when its parent is at least `min_radius` thick
+/// at the attachment, its base radius is at least `min_ratio` times that,
+/// its first ring
+/// lies within the first half of its length, the opening leaves tube on both
+/// sides of it on the parent, and the opening does not overlap an earlier
+/// site's opening on the same parent.
+fn weld_sites(skeleton: &Skeleton, params: &MeshParams) -> Vec<WeldSite> {
+    let Junction::Welded(weld) = params.junction else {
+        return Vec::new();
+    };
+    let branches = skeleton.branches();
+    let mut starts = vec![0.0_f32; branches.len()];
+    let mut sites: Vec<WeldSite> = Vec::new();
+    for (child, branch) in branches.iter().enumerate() {
+        let Some(attachment) = branch.parent else {
+            continue;
+        };
+        let Some(parent) = skeleton.index_of(attachment.parent) else {
+            continue;
+        };
+        let host = &branches[parent];
+        let sample = host.sample(attachment.t);
+        let radius = sample.radius.max(MIN_RADIUS);
+        if radius < weld.min_radius || branch.nodes[0].radius < weld.min_ratio * radius {
+            continue;
+        }
+        let length = host.length();
+        let at = attachment.t.clamp(0.0, 1.0) * length;
+        let (from, to) = (
+            at - weld.parent_reach * radius,
+            at + weld.parent_reach * radius,
+        );
+        let child_start = weld.child_reach * radius;
+        let clear = sites
+            .iter()
+            .filter(|site| site.parent == parent)
+            .all(|site| to + radius < site.gap.0 || from - radius > site.gap.1);
+        if from <= starts[parent] + radius
+            || to >= length - radius
+            || child_start >= 0.5 * branch.length()
+            || !clear
+        {
+            continue;
+        }
+        starts[child] = child_start;
+        sites.push(WeldSite {
+            child,
+            parent,
+            center: sample.position,
+            gap: (from, to),
+            child_start,
+        });
+    }
+    sites
+}
+
+/// Meshes the skeleton with the `active` sites welded; returns the bark and
+/// the sites whose skin was refused.
+fn assemble(
+    skeleton: &Skeleton,
+    params: &MeshParams,
+    sites: &[WeldSite],
+    active: &[bool],
+) -> Result<(BarkMesh, Vec<(usize, JunctionError)>), MeshError> {
+    let branches = skeleton.branches();
+    let mut layouts = vec![Layout::default(); branches.len()];
+    for (index, site) in sites.iter().enumerate() {
+        if active[index] {
+            layouts[site.child].start = site.child_start;
+            layouts[site.parent]
+                .gaps
+                .push((index, site.gap.0, site.gap.1));
+        }
+    }
     let mut builder = MeshBuilder::new();
     let mut report = MeshReport::default();
     // Per builder face, the (uv, normal) of each loop corner.
     let mut corner_data: Vec<[CornerData; 4]> = Vec::new();
     let mut face_sizes: Vec<u8> = Vec::new();
-    // Builder-local vertex index -> branch index.
+    // Builder-local vertex index -> branch index and authored normal.
     let mut vertex_branch: Vec<u32> = Vec::new();
+    let mut vertex_normals: Vec<Vec3> = Vec::new();
     // Builder face index and loop edge index of each seam edge.
     let mut seams: Vec<(usize, usize)> = Vec::new();
+    let mut tubes: Vec<Option<TubeRings>> = vec![None; branches.len()];
 
-    for (index, branch) in skeleton.branches().iter().enumerate() {
+    for (index, branch) in branches.iter().enumerate() {
         let branch_index = u32::try_from(index).map_err(|_| MeshError::TooLarge)?;
-        let profile = profile_for(skeleton, branch, params);
-        let Some(stations) = stations(branch, &profile, params, &mut report) else {
+        let layout = &layouts[index];
+        let profile = profile_for(skeleton, branch, params, layout.start > 0.0);
+        let Some((stations, gap_rings)) = stations(branch, &profile, layout, params, &mut report)
+        else {
             report.skipped_branches += 1;
             continue;
         };
@@ -175,20 +367,22 @@ pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMes
             report.max_segments = report.max_segments.max(segments);
         }
         report.rings += stations.len() as u64;
-        emit_tube(
+        tubes[index] = Some(emit_tube(
             &mut builder,
             branch,
             branch_index,
             &stations,
+            &gap_rings,
             &profile,
             &counts,
             params,
             &mut corner_data,
             &mut face_sizes,
             &mut vertex_branch,
+            &mut vertex_normals,
             &mut seams,
             &mut report,
-        )?;
+        )?);
     }
 
     let built = builder.build().map_err(MeshError::Build)?;
@@ -228,26 +422,186 @@ pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMes
         op::set_attribute(&mut edit, BRANCH_LAYER, *vertex, branch)
             .map_err(|_| MeshError::Kernel)?;
     }
+
+    // Authored normals by vertex slot, for the skin's ring corners.
+    let slots = built
+        .vertex_ids
+        .iter()
+        .map(|vertex| vertex.index() as usize + 1)
+        .max()
+        .unwrap_or(0);
+    let mut slot_normals = vec![Vec3::ZERO; slots];
+    for (vertex, normal) in built.vertex_ids.iter().zip(&vertex_normals) {
+        slot_normals[vertex.index() as usize] = *normal;
+    }
+    let mut refused = Vec::new();
+    let mut welds = Vec::new();
+    for (index, site) in sites.iter().enumerate() {
+        if !active[index] {
+            continue;
+        }
+        let (Some(parent), Some(child)) = (&tubes[site.parent], &tubes[site.child]) else {
+            return Err(MeshError::Kernel);
+        };
+        let &(_, below, above, below_s) = parent
+            .gaps
+            .iter()
+            .find(|gap| gap.0 == index)
+            .ok_or(MeshError::Kernel)?;
+        let seed = |(face, edge): FaceEdge| built.face_edge_ids[face][edge];
+        let junction = JunctionParams {
+            center: site.center.to_array().map(f64::from),
+            rings: vec![seed(below), seed(above), seed(child.base)],
+            chart: Some(JunctionChart {
+                parent: 0,
+                u_origin: 0.0,
+                u_per_turn: f64::from(parent.repeats),
+                v_origin: f64::from(parent.v_offset + below_s / parent.metres_per_v),
+                v_per_unit: f64::from(1.0 / parent.metres_per_v),
+            }),
+            region: None,
+        };
+        match add_junction(&mut edit, &junction) {
+            Ok(skin) => {
+                let parent_index = u32::try_from(site.parent).map_err(|_| MeshError::TooLarge)?;
+                finish_skin(&mut edit, &skin, &slot_normals, parent_index)?;
+                report.welded_junctions += 1;
+                welds.push(u32::try_from(site.child).map_err(|_| MeshError::TooLarge)?);
+                report.skin_quads += skin.stats.bridge_quads + skin.stats.crotch_quads;
+                report.skin_triangles += skin.stats.bridge_triangles;
+                report.skin_vertices += skin.center_vertices.len() as u64;
+                report.vertices += skin.center_vertices.len() as u64;
+            }
+            Err(error) => refused.push((index, error)),
+        }
+    }
     let _: () = edit.finish();
-    Ok(BarkMesh { mesh, report })
+    let bark = BarkMesh {
+        mesh,
+        report,
+        welds,
+        weld_refusals: Vec::new(),
+    };
+    Ok((bark, refused))
 }
 
-fn profile_for(skeleton: &Skeleton, branch: &Branch, params: &MeshParams) -> Profile {
-    match (branch.parent, params.junction) {
-        (Some(attachment), Junction::Embedded(collar)) => {
+/// Authors normals, provenance and seams on a fresh junction skin.
+///
+/// Ring corners take the tube's authored normal at their vertex, so shading
+/// is continuous across the weld; crotch centers take the area-weighted
+/// normal of their skin faces. Skin edges where the chart's U jumps, and
+/// where the skin meets the rings of the upper parent and the child, are
+/// tagged as seams.
+fn finish_skin<S: ChangeSink>(
+    edit: &mut EditSession<'_, S>,
+    skin: &JunctionOutput,
+    slot_normals: &[Vec3],
+    parent: u32,
+) -> Result<(), MeshError> {
+    let mut center_normals = vec![Vec3::ZERO; skin.center_vertices.len()];
+    let mut corners: Vec<(HalfEdgeId, VertexId)> = Vec::new();
+    let mut edges: Vec<HalfEdgeId> = Vec::new();
+    {
+        let mesh = edit.mesh();
+        for &face in &skin.faces {
+            let loop_edges: Vec<HalfEdgeId> = mesh.face_loop(face).collect();
+            let mut points: Vec<Vec3> = Vec::with_capacity(loop_edges.len());
+            for &edge in &loop_edges {
+                let vertex = mesh.to_vertex(edge).ok_or(MeshError::Kernel)?;
+                let position = mesh.vertex_position(vertex).ok_or(MeshError::Kernel)?;
+                points.push(Vec3::from_array(*position));
+                corners.push((edge, vertex));
+                edges.push(edge);
+            }
+            // Newell's normal: twice the area vector of the face.
+            let mut area = Vec3::ZERO;
+            for (i, a) in points.iter().enumerate() {
+                area += a.cross(points[(i + 1) % points.len()]);
+            }
+            for &edge in &loop_edges {
+                let vertex = mesh.to_vertex(edge).ok_or(MeshError::Kernel)?;
+                if let Some(center) = skin.center_vertices.iter().position(|&c| c == vertex) {
+                    center_normals[center] += area;
+                }
+            }
+        }
+    }
+    for (corner, vertex) in corners {
+        let normal = match skin.center_vertices.iter().position(|&c| c == vertex) {
+            Some(center) => center_normals[center].normalize_or_zero(),
+            None => slot_normals
+                .get(vertex.index() as usize)
+                .copied()
+                .unwrap_or(Vec3::ZERO),
+        };
+        op::set_corner_normal_override(edit, corner, Some(normal.to_array()))
+            .map_err(|_| MeshError::Kernel)?;
+    }
+    for &center in &skin.center_vertices {
+        op::set_attribute(edit, BRANCH_LAYER, center, parent).map_err(|_| MeshError::Kernel)?;
+    }
+    // The chart reproduces the parent tube's UVs below the fork up to
+    // rounding; snap those corners to the tube's exact values so the weld
+    // is not a UV seam.
+    let mut snaps: Vec<(HalfEdgeId, [f32; 2])> = Vec::new();
+    {
+        let mesh = edit.mesh();
+        let layer = mesh.attrs().sparse(attr::CORNER_UV);
+        let uv = |corner: HalfEdgeId| layer.and_then(|l| l.get(corner.as_id()).copied());
+        for &edge in &edges {
+            let (Some(twin), Some(before)) = (mesh.twin(edge), mesh.prev(edge)) else {
+                continue;
+            };
+            let outer = mesh.face(twin);
+            if outer.is_none_or(|face| face == FaceId::OUTSIDE || skin.faces.contains(&face)) {
+                continue;
+            }
+            let Some(twin_before) = mesh.prev(twin) else {
+                continue;
+            };
+            for (skin_corner, tube_corner) in [(edge, twin_before), (before, twin)] {
+                if let (Some(a), Some(b)) = (uv(skin_corner), uv(tube_corner))
+                    && a != b
+                    && (a[0] - b[0]).abs().max((a[1] - b[1]).abs()) < 1e-4
+                {
+                    snaps.push((skin_corner, b));
+                }
+            }
+        }
+    }
+    for (corner, value) in snaps {
+        op::set_corner_uv(edit, corner, value).map_err(|_| MeshError::Kernel)?;
+    }
+    for edge in edges {
+        if edit.mesh().is_uv_discontinuous(edge) == Some(true) {
+            op::set_edge_seam(edit, edge, true).map_err(|_| MeshError::Kernel)?;
+        }
+    }
+    Ok(())
+}
+
+fn profile_for(skeleton: &Skeleton, branch: &Branch, params: &MeshParams, welded: bool) -> Profile {
+    let collar = match params.junction {
+        Junction::Embedded(collar) => collar,
+        Junction::Welded(weld) => weld.collar,
+    };
+    match branch.parent {
+        Some(_) if welded => Profile::Plain,
+        Some(attachment) => {
             let Some(parent) = skeleton.branch(attachment.parent) else {
                 return Profile::Plain;
             };
             let sample = parent.sample(attachment.t);
             Profile::Collar {
                 length: collar.length * sample.radius.max(MIN_RADIUS),
+                rings: collar.rings,
                 flare: collar.flare,
                 normal_blend: collar.normal_blend,
                 parent_point: sample.position,
                 parent_tangent: sample.frame.tangent,
             }
         }
-        (None, _) => params.root_flare.map_or(Profile::Plain, Profile::Flare),
+        None => params.root_flare.map_or(Profile::Plain, Profile::Flare),
     }
 }
 
@@ -262,26 +616,29 @@ fn segment_count(radius: f32, params: &MeshParams) -> u32 {
     wanted.clamp(r.min_segments, r.max_segments)
 }
 
-/// Ring stations along `branch`, or `None` for a branch without length.
+/// Ring stations along `branch` from the layout's start, and each opening's
+/// site with the index of the ring below it; `None` for a branch without length.
+///
+/// Each opening gets a ring at both ends and none between, so the band
+/// between those two rings is the opening.
 fn stations(
     branch: &Branch,
     profile: &Profile,
+    layout: &Layout,
     params: &MeshParams,
     report: &mut MeshReport,
-) -> Option<Vec<Station>> {
+) -> Option<(Vec<Station>, Vec<GapRing>)> {
     let lengths = branch.arc_lengths();
     let total = *lengths.last()?;
     if total <= 1e-6 {
         return None;
     }
     let mut at: Vec<f32> = Vec::new();
-    at.push(0.0);
+    at.push(layout.start);
     // Profile rings near the base, where the radius changes fastest.
     let (extra, extent) = match *profile {
         Profile::Plain => (0, 0.0),
-        Profile::Collar { length, .. } => match params.junction {
-            Junction::Embedded(collar) => (collar.rings, length),
-        },
+        Profile::Collar { length, rings, .. } => (rings, length),
         Profile::Flare(f) => (f.rings, 3.0 * f.height),
     };
     let extent = extent.min(0.5 * total);
@@ -291,11 +648,14 @@ fn stations(
     }
     let added_before = at.len();
     // Curvature- and spacing-driven rings at skeleton nodes.
-    let mut last_s = 0.0_f32;
+    let mut last_s = layout.start;
     let mut last_tangent = branch.nodes[0].frame.tangent;
     for (i, node) in branch.nodes.iter().enumerate().skip(1) {
         let s = lengths[i];
         let is_tip = i + 1 == branch.nodes.len();
+        if s <= layout.start && !is_tip {
+            continue;
+        }
         let bend = libm::acosf(last_tangent.dot(node.frame.tangent).clamp(-1.0, 1.0));
         if is_tip || bend >= params.stations.max_bend || s - last_s >= params.stations.max_spacing {
             at.push(s);
@@ -308,13 +668,29 @@ fn stations(
         Profile::Collar { .. } => report.collar_rings += (added_before - 1) as u64,
         Profile::Flare(_) => report.flare_rings += (added_before - 1) as u64,
     }
+    let tolerance = 1e-5 * total.max(1.0);
+    for &(_, from, to) in &layout.gaps {
+        at.retain(|&s| s <= from || s >= to);
+        at.push(from);
+        at.push(to);
+    }
+    at.retain(|&s| s >= layout.start);
     at.sort_by(f32::total_cmp);
-    at.dedup_by(|a, b| (*a - *b).abs() < 1e-5 * total.max(1.0));
-    Some(
+    at.dedup_by(|a, b| (*a - *b).abs() < tolerance);
+    let gap_rings = layout
+        .gaps
+        .iter()
+        .filter_map(|&(site, from, _)| {
+            let ring = at.iter().position(|&s| (s - from).abs() < tolerance)?;
+            Some((site, ring))
+        })
+        .collect();
+    Some((
         at.iter()
             .map(|&s| station_at(branch, &lengths, s))
             .collect(),
-    )
+        gap_rings,
+    ))
 }
 
 fn station_at(branch: &Branch, lengths: &[f32], s: f32) -> Station {
@@ -412,15 +788,17 @@ fn emit_tube(
     branch: &Branch,
     branch_index: u32,
     stations: &[Station],
+    gap_rings: &[GapRing],
     profile: &Profile,
     counts: &[u32],
     params: &MeshParams,
     corner_data: &mut Vec<[CornerData; 4]>,
     face_sizes: &mut Vec<u8>,
     vertex_branch: &mut Vec<u32>,
+    vertex_normals: &mut Vec<Vec3>,
     seams: &mut Vec<(usize, usize)>,
     report: &mut MeshReport,
-) -> Result<(), MeshError> {
+) -> Result<TubeRings, MeshError> {
     let base = &stations[0];
     let circumference = TAU * base.radius;
     let repeats = libm::roundf(circumference / params.bark.tile_size).max(1.0);
@@ -447,6 +825,7 @@ fn emit_tube(
             ids.push(builder.push_vertex(position.to_array()));
             normals.push(normal);
             vertex_branch.push(branch_index);
+            vertex_normals.push(normal);
         }
     }
     // Corner `j` of `ring`, where `j == m` is the seam's U = repeats side.
@@ -459,6 +838,18 @@ fn emit_tube(
         ];
         (index, (uv, normals[index].to_array()))
     };
+    // First builder face of each band, for naming rings: a band is `m`
+    // quads, or three triangles per coarse segment.
+    let skipped = |ring: usize| gap_rings.iter().any(|&(_, below)| below == ring);
+    let mut band_faces: Vec<usize> = Vec::with_capacity(stations.len());
+    let mut next_face = face_sizes.len();
+    for ring in 0..stations.len() - 1 {
+        band_faces.push(next_face);
+        if !skipped(ring) {
+            let (m, n) = (counts[ring] as usize, counts[ring + 1] as usize);
+            next_face += if m == n { m } else { 3 * n };
+        }
+    }
     let mut face =
         |corners: &[(usize, CornerData)], seam_edge: Option<usize>| -> Result<(), MeshError> {
             let loop_ids: Vec<u32> = corners.iter().map(|(i, _)| ids[*i]).collect();
@@ -475,6 +866,9 @@ fn emit_tube(
             Ok(())
         };
     for ring in 0..stations.len() - 1 {
+        if skipped(ring) {
+            continue;
+        }
         let (m, n) = (counts[ring] as usize, counts[ring + 1] as usize);
         if m == n {
             for j in 0..m {
@@ -529,6 +923,7 @@ fn emit_tube(
     let tip_position = tip.position + tip.frame.tangent * tip.radius;
     let apex = builder.push_vertex(tip_position.to_array());
     vertex_branch.push(branch_index);
+    vertex_normals.push(tip.frame.tangent);
     let apex_uv_v = v_offset + (tip.s + tip.radius) / metres_per_v;
     for j in 0..m {
         let (a, a_data) = corner(ring, j);
@@ -546,7 +941,35 @@ fn emit_tube(
         face_sizes.push(3);
         report.tip_triangles += 1;
     }
-    Ok(())
+    // Openings leave rings on both sides, so the bands around them exist.
+    // Band `r`'s first face starts with the edge from vertex 0 to 1 of ring
+    // `r`; its edge from vertex 1 to 0 of ring `r + 1` is loop edge 2 of that
+    // quad, or loop edge 1 of the third triangle of a transition band.
+    let below = |ring: usize| {
+        let band = ring - 1;
+        if counts[band] == counts[ring] {
+            (band_faces[band], 2)
+        } else {
+            (band_faces[band] + 2, 1)
+        }
+    };
+    Ok(TubeRings {
+        base: (band_faces[0], 0),
+        gaps: gap_rings
+            .iter()
+            .map(|&(site, ring)| {
+                (
+                    site,
+                    below(ring),
+                    (band_faces[ring + 1], 0),
+                    stations[ring].s,
+                )
+            })
+            .collect(),
+        repeats,
+        metres_per_v,
+        v_offset,
+    })
 }
 
 /// Returns the branch index stored for `vertex`, if any.

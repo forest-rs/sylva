@@ -97,6 +97,14 @@ pub enum Junction {
     /// intersection. This is the real-time standard: cheap, and valid at
     /// every level of detail.
     Embedded(Collar),
+    /// Major forks are welded: the parent tube opens around the fork, the
+    /// child starts outside it, and a watertight skin
+    /// ([`exedra_mesh_ops::junction`]) joins the three open ends. Children
+    /// that are not major forks, and forks the skin refuses, stay
+    /// [`Junction::Embedded`] with the weld's collar. Opt in for hero trees
+    /// and close views; the skin costs triangles and one mesh rebuild per
+    /// round of refusals.
+    Welded(Weld),
 }
 
 impl Default for Junction {
@@ -127,6 +135,42 @@ impl Default for Collar {
             flare: 1.35,
             normal_blend: 0.6,
             rings: 3,
+        }
+    }
+}
+
+/// Which forks [`Junction::Welded`] welds, and how far the skin reaches.
+///
+/// Reaches are multiples of the parent's radius at the attachment. The skin
+/// is piecewise flat, so shorter reaches look smoother, but the three open
+/// ends must stay clear of each other: acute forks need longer reaches, and
+/// forks that cannot be cleared fall back to the embedded collar. The
+/// defaults weld most major forks of the oak preset (17 of 21 over two
+/// seeds), with the skin spanning three parent radii on each side.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Weld {
+    /// Collar for children that stay embedded.
+    pub collar: Collar,
+    /// Smallest child-to-parent radius ratio at the attachment that counts
+    /// as a major fork, in `(0, ∞)`.
+    pub min_ratio: f32,
+    /// Smallest parent radius at the attachment, in metres, worth welding;
+    /// thinner forks are never seen closely enough to need a skin.
+    pub min_radius: f32,
+    /// Half-length of the opening cut into the parent, along its centerline.
+    pub parent_reach: f32,
+    /// Distance from the fork to the child's first ring, along the child.
+    pub child_reach: f32,
+}
+
+impl Default for Weld {
+    fn default() -> Self {
+        Self {
+            collar: Collar::default(),
+            min_ratio: 0.5,
+            min_radius: 0.04,
+            parent_reach: 3.0,
+            child_reach: 3.0,
         }
     }
 }
