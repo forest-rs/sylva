@@ -138,7 +138,9 @@ impl LeafShape {
     }
 
     /// Texture coordinates of a leaf-space point: the mask and card cover
-    /// `[-max_half_width, max_half_width] x [0, length]`.
+    /// `[-max_half_width, max_half_width] x [0, length]`. As for bark, `v = 0`
+    /// is the first texel row (the blade base), and U, V run right-handed about
+    /// the upper surface.
     #[must_use]
     pub fn uv(&self, p: Vec2) -> [f32; 2] {
         let half = self.max_half_width();

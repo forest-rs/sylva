@@ -5,19 +5,22 @@
 
 /// How many segments a branch ring gets.
 ///
-/// The count is chosen once per branch from its base circumference, so every
-/// ring of a branch has the same topology and faces stay quads. It is
-/// `round(circumference * segments_per_metre)` clamped to
-/// `[min_segments, max_segments]`: a level-of-detail setting trades this
-/// density for triangles.
+/// A branch's base count is `round(circumference * segments_per_metre)`
+/// clamped to `[min_segments, max_segments]`: a level-of-detail setting
+/// trades this density for triangles. With `follow_taper`, rings toward the
+/// tip halve the count as their own radius allows (keeping it even and at
+/// least `min_segments`, one halving per ring), joined to the wider ring by a
+/// band of triangles; otherwise every ring keeps the base count.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct RingResolution {
     /// Fewest segments around any branch; at least 3.
     pub min_segments: u32,
     /// Most segments around any branch.
     pub max_segments: u32,
-    /// Segments per metre of base circumference.
+    /// Segments per metre of circumference.
     pub segments_per_metre: f32,
+    /// Halve segment counts along a tapering branch.
+    pub follow_taper: bool,
 }
 
 impl Default for RingResolution {
@@ -26,6 +29,7 @@ impl Default for RingResolution {
             min_segments: 4,
             max_segments: 24,
             segments_per_metre: 20.0,
+            follow_taper: true,
         }
     }
 }
@@ -62,6 +66,10 @@ impl Default for Stations {
 /// metres, so texels are square at the base and the density matches across
 /// branches of every size. Each branch gets a keyed V offset so neighbouring
 /// branches do not start the tile at the same place.
+///
+/// Sylva UVs index textures by row, as glTF and dapple do: `v = 0` is the
+/// first texel row. U and V run right-handed about the outward normal, so a
+/// dapple normal map (`+X` along U, `+Y` along V) needs no flip.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct BarkMapping {
     /// World size of one bark tile, in metres.

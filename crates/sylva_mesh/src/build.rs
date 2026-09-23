@@ -22,6 +22,9 @@ use crate::{Junction, MeshError, MeshParams, RootFlare};
 /// key into per-branch tables such as wind pivots.
 pub const BRANCH_LAYER: AttrKey<u32> = AttrKey::new(Domain::Vertex, "sylva.branch");
 
+/// A corner's UV and authored normal.
+type CornerData = ([f32; 2], [f32; 3]);
+
 /// Smallest ring radius, in metres; thinner rings would collapse.
 const MIN_RADIUS: f32 = 1e-4;
 
@@ -44,17 +47,22 @@ pub struct MeshReport {
     pub quads: u64,
     /// Triangles closing branch tips.
     pub tip_triangles: u64,
-    /// Fewest segments around any meshed branch; 0 when none was meshed.
+    /// Bands where a ring halves its segment count toward the tip.
+    pub transition_bands: u64,
+    /// Triangles in those bands, three per coarse segment.
+    pub transition_triangles: u64,
+    /// Fewest segments around any ring; 0 when none was meshed.
     pub min_segments: u32,
-    /// Most segments around any meshed branch.
+    /// Most segments around any ring.
     pub max_segments: u32,
 }
 
 impl MeshReport {
-    /// Triangles after extraction: two per quad plus the tip fans.
+    /// Triangles after extraction: two per quad, plus transition bands and
+    /// tip fans.
     #[must_use]
     pub fn triangles(&self) -> u64 {
-        self.quads * 2 + self.tip_triangles
+        self.quads * 2 + self.transition_triangles + self.tip_triangles
     }
 }
 
@@ -142,7 +150,7 @@ pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMes
     let mut builder = MeshBuilder::new();
     let mut report = MeshReport::default();
     // Per builder face, the (uv, normal) of each loop corner.
-    let mut corner_data: Vec<[([f32; 2], [f32; 3]); 4]> = Vec::new();
+    let mut corner_data: Vec<[CornerData; 4]> = Vec::new();
     let mut face_sizes: Vec<u8> = Vec::new();
     // Builder-local vertex index -> branch index.
     let mut vertex_branch: Vec<u32> = Vec::new();
@@ -156,14 +164,16 @@ pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMes
             report.skipped_branches += 1;
             continue;
         };
-        let segments = segment_count(stations[0].radius, params);
+        let counts = ring_segments(&stations, segment_count(stations[0].radius, params), params);
         report.branches += 1;
-        report.min_segments = if report.min_segments == 0 {
-            segments
-        } else {
-            report.min_segments.min(segments)
-        };
-        report.max_segments = report.max_segments.max(segments);
+        for &segments in &counts {
+            report.min_segments = if report.min_segments == 0 {
+                segments
+            } else {
+                report.min_segments.min(segments)
+            };
+            report.max_segments = report.max_segments.max(segments);
+        }
         report.rings += stations.len() as u64;
         emit_tube(
             &mut builder,
@@ -171,7 +181,7 @@ pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMes
             branch_index,
             &stations,
             &profile,
-            segments,
+            &counts,
             params,
             &mut corner_data,
             &mut face_sizes,
@@ -372,6 +382,27 @@ fn ring_point(
     (position, normal)
 }
 
+/// Segment count of every ring: the branch's base count, halved each time
+/// the ring's radius alone would warrant half as many, while the count stays
+/// even and at least `min_segments`. Counts never rise toward the tip and
+/// drop at most one level per ring, so every band is quads or a clean
+/// two-to-one transition.
+fn ring_segments(stations: &[Station], base: u32, params: &MeshParams) -> Vec<u32> {
+    let mut counts = Vec::with_capacity(stations.len());
+    let mut current = base;
+    for station in stations {
+        if params.rings.follow_taper {
+            let wanted = segment_count(station.radius, params);
+            let half = current / 2;
+            if current.is_multiple_of(2) && half >= params.rings.min_segments && wanted <= half {
+                current = half;
+            }
+        }
+        counts.push(current);
+    }
+    counts
+}
+
 #[expect(
     clippy::cast_precision_loss,
     reason = "segment counts and repeats are small integers"
@@ -382,15 +413,14 @@ fn emit_tube(
     branch_index: u32,
     stations: &[Station],
     profile: &Profile,
-    segments: u32,
+    counts: &[u32],
     params: &MeshParams,
-    corner_data: &mut Vec<[([f32; 2], [f32; 3]); 4]>,
+    corner_data: &mut Vec<[CornerData; 4]>,
     face_sizes: &mut Vec<u8>,
     vertex_branch: &mut Vec<u32>,
     seams: &mut Vec<(usize, usize)>,
     report: &mut MeshReport,
 ) -> Result<(), MeshError> {
-    let m = segments as usize;
     let base = &stations[0];
     let circumference = TAU * base.radius;
     let repeats = libm::roundf(circumference / params.bark.tile_size).max(1.0);
@@ -401,12 +431,16 @@ fn emit_tube(
         .with(tag("bark.v_offset"))
         .unit_f32();
 
-    // Positions and normals per ring vertex.
-    let mut ids: Vec<u32> = Vec::with_capacity(stations.len() * m + 1);
-    let mut normals: Vec<Vec3> = Vec::with_capacity(stations.len() * m + 1);
+    // Positions and normals per ring vertex; `starts[ring]` indexes a ring's
+    // first vertex.
+    let mut ids: Vec<u32> = Vec::new();
+    let mut normals: Vec<Vec3> = Vec::new();
+    let mut starts: Vec<usize> = Vec::with_capacity(stations.len());
     for (i, station) in stations.iter().enumerate() {
         let prev = i.checked_sub(1).map(|p| &stations[p]);
         let next = stations.get(i + 1);
+        let m = counts[i] as usize;
+        starts.push(ids.len());
         for j in 0..m {
             let theta = TAU * j as f32 / m as f32;
             let (position, normal) = ring_point(station, next, prev, profile, theta);
@@ -415,58 +449,97 @@ fn emit_tube(
             vertex_branch.push(branch_index);
         }
     }
-    let uv = |ring: usize, j: usize| -> [f32; 2] {
-        [
+    // Corner `j` of `ring`, where `j == m` is the seam's U = repeats side.
+    let corner = |ring: usize, j: usize| -> (usize, CornerData) {
+        let m = counts[ring] as usize;
+        let index = starts[ring] + j % m;
+        let uv = [
             repeats * j as f32 / m as f32,
             v_offset + stations[ring].s / metres_per_v,
-        ]
+        ];
+        (index, (uv, normals[index].to_array()))
     };
-    for ring in 0..stations.len() - 1 {
-        for j in 0..m {
-            let j1 = (j + 1) % m;
-            let a = ring * m + j;
-            let b = ring * m + j1;
-            let c = (ring + 1) * m + j1;
-            let d = (ring + 1) * m + j;
-            builder
-                .add_face(&[ids[a], ids[b], ids[c], ids[d]])
-                .map_err(MeshError::Build)?;
-            // The last column closes the ring: its `j + 1` side is U = repeats.
-            let u_next = if j1 == 0 { m } else { j1 };
-            corner_data.push([
-                (uv(ring, j), normals[a].to_array()),
-                (uv(ring, u_next), normals[b].to_array()),
-                (uv(ring + 1, u_next), normals[c].to_array()),
-                (uv(ring + 1, j), normals[d].to_array()),
-            ]);
-            face_sizes.push(4);
-            if j1 == 0 {
-                // Loop edge 1 runs b -> c along the seam.
-                seams.push((face_sizes.len() - 1, 1));
+    let mut face =
+        |corners: &[(usize, CornerData)], seam_edge: Option<usize>| -> Result<(), MeshError> {
+            let loop_ids: Vec<u32> = corners.iter().map(|(i, _)| ids[*i]).collect();
+            builder.add_face(&loop_ids).map_err(MeshError::Build)?;
+            let mut data = [([0.0; 2], [0.0; 3]); 4];
+            for (slot, (_, d)) in data.iter_mut().zip(corners) {
+                *slot = *d;
             }
-            report.quads += 1;
+            corner_data.push(data);
+            face_sizes.push(u8::try_from(corners.len()).expect("faces have at most four corners"));
+            if let Some(edge) = seam_edge {
+                seams.push((face_sizes.len() - 1, edge));
+            }
+            Ok(())
+        };
+    for ring in 0..stations.len() - 1 {
+        let (m, n) = (counts[ring] as usize, counts[ring + 1] as usize);
+        if m == n {
+            for j in 0..m {
+                // The last column closes the ring; loop edge 1 (b -> c) is
+                // the seam.
+                let seam = (j + 1 == m).then_some(1);
+                face(
+                    &[
+                        corner(ring, j),
+                        corner(ring, j + 1),
+                        corner(ring + 1, j + 1),
+                        corner(ring + 1, j),
+                    ],
+                    seam,
+                )?;
+                report.quads += 1;
+            }
+        } else {
+            // Two fine segments below each coarse one: three triangles.
+            debug_assert_eq!(m, 2 * n, "rings halve at most once per band");
+            report.transition_bands += 1;
+            for j in 0..n {
+                let (f0, f1, f2) = (2 * j, 2 * j + 1, 2 * j + 2);
+                face(
+                    &[corner(ring, f0), corner(ring, f1), corner(ring + 1, j)],
+                    None,
+                )?;
+                // Loop edge 1 (fine 2j + 2 -> coarse j + 1) is the seam on
+                // the last segment.
+                let seam = (j + 1 == n).then_some(1);
+                face(
+                    &[corner(ring, f1), corner(ring, f2), corner(ring + 1, j + 1)],
+                    seam,
+                )?;
+                face(
+                    &[
+                        corner(ring, f1),
+                        corner(ring + 1, j + 1),
+                        corner(ring + 1, j),
+                    ],
+                    None,
+                )?;
+                report.transition_triangles += 3;
+            }
         }
     }
 
     // Tip cap: a fan to a point one tip radius beyond the last ring.
+    let ring = stations.len() - 1;
+    let m = counts[ring] as usize;
     let tip = stations.last().expect("stations are non-empty");
     let tip_position = tip.position + tip.frame.tangent * tip.radius;
     let apex = builder.push_vertex(tip_position.to_array());
     vertex_branch.push(branch_index);
-    let ring = stations.len() - 1;
     let apex_uv_v = v_offset + (tip.s + tip.radius) / metres_per_v;
     for j in 0..m {
-        let j1 = (j + 1) % m;
-        let a = ring * m + j;
-        let b = ring * m + j1;
+        let (a, a_data) = corner(ring, j);
+        let (b, b_data) = corner(ring, j + 1);
         builder
             .add_face(&[ids[a], ids[b], apex])
             .map_err(MeshError::Build)?;
-        let u_next = if j1 == 0 { m } else { j1 };
         let u_mid = repeats * (j as f32 + 0.5) / m as f32;
         corner_data.push([
-            (uv(ring, j), normals[a].to_array()),
-            (uv(ring, u_next), normals[b].to_array()),
+            a_data,
+            b_data,
             ([u_mid, apex_uv_v], tip.frame.tangent.to_array()),
             ([0.0, 0.0], [0.0, 0.0, 0.0]),
         ]);

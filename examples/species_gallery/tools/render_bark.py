@@ -7,7 +7,9 @@
 
 Imports `bark.obj` unchanged (sylva is Z-up, like Blender), keeps its
 authored normals, and textures it with Blender's generated UV grid so bark
-seams, wrap counts and texel density are visible. Writes `bark.png` (whole
+seams, wrap counts and texel density are visible. `bark.obj` stores `1 - v`
+so that sylva's row-indexed UVs sample dapple's textures correctly in Blender;
+Blender's own grid therefore reads mirrored, which is expected. Writes `bark.png` (whole
 tree), `bark-base.png` (trunk base and root flare) and `bark-fork.png` (the
 first limb junctions) next to the input.
 """

@@ -254,6 +254,7 @@ fn root_flare_widens_the_base_in_lobes() {
             min_segments: 20,
             max_segments: 20,
             segments_per_metre: 0.0,
+            follow_taper: false,
         },
         ..MeshParams::default()
     };
@@ -321,4 +322,58 @@ fn invalid_input_is_refused() {
         mesh_skeleton(&no_radii, &MeshParams::default()),
         Err(MeshError::Skeleton(_))
     ));
+}
+
+#[test]
+fn segment_counts_follow_the_taper_without_cracks() {
+    // A long stem tapering from a thick base to a thin tip.
+    let mut skeleton = Skeleton::new();
+    #[expect(clippy::cast_precision_loss, reason = "test node counts are small")]
+    let nodes = (0..=20)
+        .map(|i| Node::at(Vec3::new(0.0, 0.0, 0.5 * i as f32)))
+        .collect();
+    skeleton
+        .push_branch(Branch {
+            id: BranchId::root(0),
+            order: 0,
+            parent: None,
+            nodes,
+        })
+        .expect("stem");
+    compute_frames(&mut skeleton, &FrameParams::default());
+    pipe_model_radii(
+        &mut skeleton,
+        &PipeModel {
+            tip_radius: 0.01,
+            exponent: 2.0,
+            shoots_per_metre: 40.0,
+        },
+    )
+    .expect("radii");
+    let constant = MeshParams {
+        rings: RingResolution {
+            follow_taper: false,
+            ..RingResolution::default()
+        },
+        ..plain()
+    };
+    let flat = mesh_skeleton(&skeleton, &constant).expect("constant");
+    let tapered = mesh_skeleton(&skeleton, &plain()).expect("tapered");
+    let r = tapered.report;
+    assert!(r.transition_bands >= 2, "several halvings: {r:?}");
+    assert!(r.min_segments < r.max_segments);
+    assert!(r.min_segments >= RingResolution::default().min_segments);
+    assert!(r.triangles() < flat.report.triangles(), "fewer triangles");
+    assert!(
+        tapered.mesh.validate_fast().is_empty(),
+        "valid, crack-free topology"
+    );
+    let tri = extract(&tapered.mesh);
+    assert_eq!(tri.indices.len() as u64, 3 * r.triangles());
+    // Every transition vertex sits on a ring, and the seam still spans the
+    // full U range on every ring.
+    let repeats = tri.uvs.iter().map(|uv| uv[0]).fold(0.0, f32::max);
+    let rings_at_seam = tri.uvs.iter().filter(|uv| uv[0] == repeats).count();
+    let rings_at_zero = tri.uvs.iter().filter(|uv| uv[0] == 0.0).count();
+    assert_eq!(rings_at_seam, rings_at_zero, "every ring closes its seam");
 }
