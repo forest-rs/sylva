@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "sylva",
+  "project_id": "e520062b-f003-49fb-8f0a-351636b23e3e"
+}
