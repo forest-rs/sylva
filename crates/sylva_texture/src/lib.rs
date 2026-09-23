@@ -9,7 +9,8 @@
 //! - [`bark()`] makes a tileable bark set ([`BarkRecipe`]) whose tile matches
 //!   the world size of `sylva_mesh`'s bark UVs;
 //! - [`leaf()`] makes a leaf set ([`LeafRecipe`]) in the UV frame of a
-//!   `sylva_foliage` leaf shape: opacity is the leaf's own coverage mask, and
+//!   `sylva_foliage` leaf shape: opacity is the leaf's own coverage mask
+//!   ([`leaf_mask`], rasterized from its outline by `dapple_imaging`), and
 //!   veins follow its lobes.
 //!
 //! Every map of a set derives from one height or one outline, so the maps
@@ -39,7 +40,7 @@ mod leaf;
 
 pub use bark::{BarkRecipe, BarkSet, bark};
 pub use error::TextureError;
-pub use leaf::{LeafRecipe, LeafSet, leaf};
+pub use leaf::{LeafRecipe, LeafSet, leaf, leaf_mask};
 
 #[cfg(test)]
 mod tests;

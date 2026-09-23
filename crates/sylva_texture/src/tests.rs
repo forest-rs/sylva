@@ -3,9 +3,9 @@
 
 use dapple_encode::{PackSettings, Profile, pack};
 use dapple_raster::Edge;
-use sylva_foliage::{LeafShape, leaf_mask};
+use sylva_foliage::LeafShape;
 
-use crate::{BarkRecipe, LeafRecipe, TextureError, bark, leaf};
+use crate::{BarkRecipe, LeafRecipe, TextureError, bark, leaf, leaf_mask};
 
 fn small_bark() -> BarkRecipe {
     BarkRecipe {
@@ -65,11 +65,9 @@ fn leaf_opacity_is_the_leaf_shapes_own_mask() {
         ..LeafRecipe::default()
     };
     let set = leaf(&recipe).expect("leaf");
-    let mask = leaf_mask(&shape, 64);
+    let mask = leaf_mask(&shape, 64).expect("mask");
     let opacity = set.maps.opacity.as_ref().expect("opacity").values();
-    for (o, &c) in opacity.iter().zip(&mask.coverage) {
-        assert!((o * 255.0 - f32::from(c)).abs() < 1e-3);
-    }
+    assert_eq!(opacity, mask.values());
     // Veins are lighter than the blade along the midrib.
     let color = set.maps.base_color.as_ref().unwrap().values();
     let at = |col: usize, row: usize| color[(row * 64 + col) * 3 + 1];
@@ -142,4 +140,37 @@ fn invalid_recipes_are_refused() {
             name: "translucency"
         })
     );
+}
+
+/// The area enclosed by a closed polygon.
+fn polygon_area(outline: &[glam::Vec2]) -> f32 {
+    0.5 * outline
+        .iter()
+        .zip(outline.iter().cycle().skip(1))
+        .map(|(a, b)| a.perp_dot(*b))
+        .sum::<f32>()
+}
+
+#[test]
+fn the_mask_covers_the_outline_area() {
+    let shape = LeafShape::default();
+    let frame_area = 2.0 * shape.max_half_width() * shape.length;
+    let expected = polygon_area(&shape.outline_at(1024)) / frame_area;
+    let mask = leaf_mask(&shape, 128).expect("mask");
+    assert_eq!((mask.width(), mask.height()), (128, 128));
+    let covered = mask.values().iter().sum::<f32>() / (128.0 * 128.0);
+    assert!((covered - expected).abs() < 0.01, "{covered} vs {expected}");
+    assert!(mask.values().iter().all(|v| (0.0..=1.0).contains(v)));
+    // The base row sits on the blade base; the midrib column is covered
+    // along the blade.
+    assert!(mask.values()[64 * 128 + 64] > 0.99);
+    assert_eq!(
+        mask.values(),
+        leaf_mask(&shape, 128).expect("mask").values(),
+        "deterministic"
+    );
+    assert!(matches!(
+        leaf_mask(&shape, 0),
+        Err(TextureError::Params { name: "size" })
+    ));
 }

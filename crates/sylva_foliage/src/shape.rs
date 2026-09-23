@@ -1,7 +1,7 @@
 // Copyright 2026 the Sylva Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Leaf contours and their coverage masks.
+//! Leaf contours.
 
 use alloc::vec::Vec;
 use core::f32::consts::PI;
@@ -164,17 +164,29 @@ impl LeafShape {
 
     /// Midrib parameters of the meshing stations, from 0 to 1.
     pub(crate) fn station_ts(&self) -> Vec<f32> {
-        #[expect(clippy::cast_precision_loss, reason = "station counts are small")]
-        (0..=self.stations)
-            .map(|i| i as f32 / self.stations as f32)
-            .collect()
+        Self::ts(self.stations)
     }
 
-    /// The closed outline in leaf space, counter-clockwise seen from `+Z`:
-    /// up the right margin from the base, then down the left.
+    /// `stations + 1` evenly spaced midrib parameters, from 0 to 1.
+    fn ts(stations: u32) -> Vec<f32> {
+        #[expect(clippy::cast_precision_loss, reason = "station counts are small")]
+        (0..=stations).map(|i| i as f32 / stations as f32).collect()
+    }
+
+    /// The closed outline in leaf space at the meshing stations,
+    /// counter-clockwise seen from `+Z`: up the right margin from the base,
+    /// then down the left. The blade mesh's rim follows it exactly.
     #[must_use]
     pub fn outline(&self) -> Vec<Vec2> {
-        let ts = self.station_ts();
+        self.outline_at(self.stations)
+    }
+
+    /// The same closed outline sampled at `stations` (at least 2) evenly
+    /// spaced midrib parameters instead of the meshing stations: finer for
+    /// masks, which resolve lobes a coarse mesh rim cuts across.
+    #[must_use]
+    pub fn outline_at(&self, stations: u32) -> Vec<Vec2> {
+        let ts = Self::ts(stations.max(2));
         let mut points: Vec<Vec2> = ts
             .iter()
             .map(|&t| self.skewed(Vec2::new(self.half_width(t), t * self.length)))
@@ -197,68 +209,5 @@ impl LeafShape {
     pub fn uv(&self, p: Vec2) -> [f32; 2] {
         let half = self.max_half_width();
         [0.5 + 0.5 * p.x / half, p.y / self.length]
-    }
-}
-
-/// An 8-bit coverage mask of a leaf blade, row-major from `v = 0`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LeafMask {
-    /// Width in texels.
-    pub width: u32,
-    /// Height in texels.
-    pub height: u32,
-    /// Coverage per texel, 0 (empty) to 255 (inside).
-    pub coverage: Vec<u8>,
-}
-
-impl LeafMask {
-    /// Fraction of the mask area covered by the blade.
-    #[must_use]
-    pub fn coverage_fraction(&self) -> f32 {
-        let sum: u64 = self.coverage.iter().map(|&c| u64::from(c)).sum();
-        #[expect(clippy::cast_precision_loss, reason = "a coverage ratio")]
-        let ratio = sum as f32 / (255.0 * self.coverage.len().max(1) as f32);
-        ratio
-    }
-}
-
-/// Rasterizes `shape` into a `size x size` coverage mask in its UV frame.
-///
-/// Each texel's coverage is the fraction of 4 x 4 stratified samples inside
-/// the outline, tested exactly with [`LeafShape::contains`].
-#[must_use]
-pub fn leaf_mask(shape: &LeafShape, size: u32) -> LeafMask {
-    const SUB: u32 = 4;
-    let half = shape.max_half_width();
-    let mut coverage = Vec::with_capacity((size * size) as usize);
-    #[expect(clippy::cast_precision_loss, reason = "mask sizes are small")]
-    let (n, sub) = (size as f32, SUB as f32);
-    for row in 0..size {
-        for col in 0..size {
-            let mut inside = 0_u32;
-            for sy in 0..SUB {
-                for sx in 0..SUB {
-                    #[expect(clippy::cast_precision_loss, reason = "mask sizes are small")]
-                    let (u, v) = (
-                        (col as f32 + (sx as f32 + 0.5) / sub) / n,
-                        (row as f32 + (sy as f32 + 0.5) / sub) / n,
-                    );
-                    let x = (u - 0.5) * 2.0 * half;
-                    if shape.contains(Vec2::new(x, v * shape.length)) {
-                        inside += 1;
-                    }
-                }
-            }
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "at most 16 samples scale into 0..=255"
-            )]
-            coverage.push(((inside * 255 + SUB * SUB / 2) / (SUB * SUB)) as u8);
-        }
-    }
-    LeafMask {
-        width: size,
-        height: size,
-        coverage,
     }
 }

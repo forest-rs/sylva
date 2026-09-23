@@ -5,13 +5,19 @@
 
 use alloc::vec::Vec;
 
+use alloc::string::ToString;
 use dapple_encode::{Image, MaterialMaps};
 use dapple_field::program::{Fingerprint, Op, ProgramBuilder};
 use dapple_field::raster::Region;
 use dapple_field::{Basis, Domain, FractalParams};
+use dapple_imaging::imaging::Painter;
+use dapple_imaging::imaging::kurbo::BezPath;
+use dapple_imaging::imaging::peniko::Color;
+use dapple_imaging::imaging::record::Scene;
+use dapple_imaging::rasterize;
 use dapple_raster::{Edge, HeightToNormal, Raster, RasterOp, Realization, realize};
 use glam::Vec2;
-use sylva_foliage::{LeafShape, leaf_mask};
+use sylva_foliage::LeafShape;
 
 use crate::TextureError;
 
@@ -137,6 +143,51 @@ fn segment_distance(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     p.distance(a + ab * t)
 }
 
+/// The texture region of `shape`: its [`LeafShape::uv`] frame, in leaf-plane
+/// metres, on a `size x size` grid.
+fn frame(shape: &LeafShape, size: u32) -> Result<Realization, TextureError> {
+    let half = shape.max_half_width();
+    Ok(Realization::region(
+        Region {
+            origin: Vec2::new(-half, 0.0),
+            size: Vec2::new(2.0 * half, shape.length),
+        },
+        size,
+        size,
+    )?)
+}
+
+/// Rasterizes `shape`'s coverage mask on a `size x size` grid over its
+/// [`LeafShape::uv`] frame, row 0 at the blade base.
+///
+/// Each texel holds the fraction of its area inside the outline, in steps
+/// of 1/255, from `dapple_imaging` on the same grid as the leaf set's other
+/// maps. The outline is [`LeafShape::outline_at`] with four stations per
+/// texel along the midrib, fine enough that its chords follow the lobes.
+///
+/// # Errors
+///
+/// [`TextureError::Params`] for a zero `size`, or a dapple error.
+pub fn leaf_mask(shape: &LeafShape, size: u32) -> Result<Raster, TextureError> {
+    if size == 0 {
+        return Err(TextureError::Params { name: "size" });
+    }
+    let outline = shape.outline_at(size.saturating_mul(4).max(shape.stations));
+    let mut path = BezPath::new();
+    for (i, p) in outline.iter().enumerate() {
+        let p = (f64::from(p.x), f64::from(p.y));
+        if i == 0 {
+            path.move_to(p);
+        } else {
+            path.line_to(p);
+        }
+    }
+    path.close_path();
+    let mut scene = Scene::new();
+    Painter::new(&mut scene).fill(&path, Color::WHITE).draw();
+    rasterize(&scene, frame(shape, size)?).map_err(|e| TextureError::Mask(e.to_string()))
+}
+
 /// Generates a leaf set for `recipe.shape`.
 ///
 /// # Errors
@@ -166,17 +217,7 @@ pub fn leaf(recipe: &LeafRecipe) -> Result<LeafSet, TextureError> {
     })?;
     let program = b.finish(mottle)?;
     let fingerprint = program.fingerprint();
-    let mottle = realize(
-        &program,
-        Realization::region(
-            Region {
-                origin,
-                size: Vec2::new(width, length),
-            },
-            n,
-            n,
-        )?,
-    )?;
+    let mottle = realize(&program, frame(shape, n)?)?;
 
     let veins = recipe.veins();
     let texels = (n * n) as usize;
@@ -201,12 +242,7 @@ pub fn leaf(recipe: &LeafRecipe) -> Result<LeafSet, TextureError> {
     }
     .apply(&relief)?;
 
-    let mask = leaf_mask(shape, n);
-    let opacity: Vec<f32> = mask
-        .coverage
-        .iter()
-        .map(|&c| f32::from(c) / 255.0)
-        .collect();
+    let opacity = leaf_mask(shape, n)?.values().to_vec();
     let mut base_color = Vec::with_capacity(texels * 3);
     let mut subsurface_color = Vec::with_capacity(texels * 3);
     let mut subsurface_weight = Vec::with_capacity(texels);

@@ -9,9 +9,7 @@ use glam::{Vec2, Vec3};
 use sylva_skeleton::passes::{FrameParams, PipeModel, compute_frames, pipe_model_radii};
 use sylva_skeleton::{Branch, BranchId, Frame, Node, Site, Skeleton};
 
-use crate::{
-    FoliageError, FoliageParams, LeafShape, card_mesh, leaf_mask, leaf_mesh, place_leaves,
-};
+use crate::{FoliageError, FoliageParams, LeafShape, card_mesh, leaf_mesh, place_leaves};
 
 #[test]
 fn the_outline_is_a_symmetric_counter_clockwise_polygon() {
@@ -40,26 +38,24 @@ fn the_outline_is_a_symmetric_counter_clockwise_polygon() {
     assert!(dips >= 4, "lobed margin, {dips} sinuses");
 }
 
+/// The area enclosed by a closed polygon.
+fn polygon_area(outline: &[Vec2]) -> f32 {
+    0.5 * outline
+        .iter()
+        .zip(outline.iter().cycle().skip(1))
+        .map(|(a, b)| a.perp_dot(*b))
+        .sum::<f32>()
+}
+
 #[test]
-fn the_mask_covers_the_outline_area() {
+fn finer_outlines_converge_on_the_same_contour() {
     let shape = LeafShape::default();
-    let outline = shape.outline();
-    let area: f32 = 0.5
-        * outline
-            .iter()
-            .zip(outline.iter().cycle().skip(1))
-            .map(|(a, b)| a.perp_dot(*b))
-            .sum::<f32>();
-    let frame_area = 2.0 * shape.max_half_width() * shape.length;
-    let mask = leaf_mask(&shape, 128);
-    assert_eq!(mask.coverage.len(), 128 * 128);
-    let expected = area / frame_area;
-    assert!(
-        (mask.coverage_fraction() - expected).abs() < 0.01,
-        "{} vs {expected}",
-        mask.coverage_fraction()
-    );
-    assert_eq!(mask, leaf_mask(&shape, 128), "deterministic");
+    assert_eq!(shape.outline(), shape.outline_at(shape.stations));
+    let fine = shape.outline_at(512);
+    assert_eq!(fine.len(), 2 * 512);
+    let (coarse, finer) = (polygon_area(&fine), polygon_area(&shape.outline_at(1024)));
+    assert!(coarse > 0.0, "counter-clockwise");
+    assert!((coarse - finer).abs() < 1e-3 * finer, "{coarse} vs {finer}");
 }
 
 #[test]
@@ -259,8 +255,8 @@ fn lobes_sweep_toward_the_tip() {
             .y
     };
     assert!(lobe_tip(&swept) > lobe_tip(&square) + 0.004);
-    // Mask, mesh and outline agree: masks differ once the blade sweeps.
-    assert_ne!(leaf_mask(&square, 64), leaf_mask(&swept, 64));
+    // The outline, which masks rasterize, sweeps with the blade.
+    assert_ne!(square.outline_at(64), swept.outline_at(64));
     // Basal ears widen the base.
     assert!(swept.half_width(0.07) > square.half_width(0.07));
 }

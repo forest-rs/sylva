@@ -13,6 +13,7 @@ publish = false
 [dependencies]
 dapple_encode.workspace = true
 dapple_field.workspace = true
+dapple_imaging.workspace = true
 dapple_raster.workspace = true
 glam.workspace = true
 libm.workspace = true

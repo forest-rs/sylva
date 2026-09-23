@@ -97,8 +97,8 @@ pub fn leaf_mesh(shape: &LeafShape) -> Result<Mesh, FoliageError> {
 }
 
 /// Meshes the single-leaf card: one flat quad covering the mask frame,
-/// with UVs `(0, 0)` to `(1, 1)`. Pair it with [`leaf_mask`](crate::leaf_mask)
-/// for alpha-tested foliage.
+/// with UVs `(0, 0)` to `(1, 1)`. Pair it with the shape's coverage mask
+/// (`sylva_texture::leaf_mask`) for alpha-tested foliage.
 ///
 /// # Errors
 ///

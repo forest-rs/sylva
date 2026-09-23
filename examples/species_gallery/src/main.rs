@@ -47,7 +47,7 @@ use dapple_encode::{Filter, PackSettings, Profile, ktx2, pack};
 use exedra_mesh::{ExtractAttribute, ExtractParams, NormalsSource, TriMesh};
 use sylva_asset::{MaterialRole, TreeMaterials, build_asset};
 use sylva_bake::BakeMaterial;
-use sylva_foliage::{Foliage, leaf_mask, place_leaves};
+use sylva_foliage::{Foliage, place_leaves};
 use sylva_gltf::{ExportOptions, LeafExport, MaterialTextures, export_lod_glb_with};
 use sylva_lod::{
     Atlas, AtlasSettings, CardMaterials, Impostor, ImpostorLayout, ImpostorPolicy, LodPolicy,
@@ -484,13 +484,23 @@ fn write_atlas(dir: &std::path::Path, atlas: &Atlas) -> Result<(), Box<dyn std::
 
 /// Writes the first template's coverage mask as an 8-bit grayscale PNG.
 fn write_mask(path: &std::path::Path, foliage: &Foliage) -> Result<(), Box<dyn std::error::Error>> {
-    let mask = leaf_mask(&foliage.templates[0].shape, 256);
+    let mask = sylva_texture::leaf_mask(&foliage.templates[0].shape, 256)?;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "coverage in [0, 1], in steps of 1/255"
+    )]
+    let coverage: Vec<u8> = mask
+        .values()
+        .iter()
+        .map(|&c| (c * 255.0).round() as u8)
+        .collect();
     let file = std::fs::File::create(path)?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), mask.width, mask.height);
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), mask.width(), mask.height());
     encoder.set_color(png::ColorType::Grayscale);
     encoder.set_depth(png::BitDepth::Eight);
     // Row 0 (`v = 0`, the leaf base) is the top row, as in dapple's PNG output.
-    encoder.write_header()?.write_image_data(&mask.coverage)?;
+    encoder.write_header()?.write_image_data(&coverage)?;
     Ok(())
 }
 

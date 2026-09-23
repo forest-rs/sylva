@@ -3,6 +3,7 @@
 
 //! Texture recipe failures.
 
+use alloc::string::String;
 use core::fmt;
 
 use dapple_encode::EncodeError;
@@ -24,6 +25,9 @@ pub enum TextureError {
     Raster(RasterError),
     /// Dapple rejected an image.
     Encode(EncodeError),
+    /// `dapple_imaging` could not rasterize a mask; the message is its
+    /// error's.
+    Mask(String),
 }
 
 impl fmt::Display for TextureError {
@@ -33,6 +37,7 @@ impl fmt::Display for TextureError {
             Self::Program(error) => write!(f, "field program: {error}"),
             Self::Raster(error) => write!(f, "raster: {error}"),
             Self::Encode(error) => write!(f, "image: {error}"),
+            Self::Mask(error) => write!(f, "mask: {error}"),
         }
     }
 }

@@ -82,9 +82,10 @@ clippy.allow_attributes = "warn"
 # `scalar-math` disables SIMD code paths, so results are bit-identical across
 # platforms. Determinism is a sylva contract, not a performance afterthought.
 # Dapple is pinned to a reviewed `main` revision until it publishes releases.
-dapple_encode = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "3448f47f09559359732d4b70eac61c968bca17cd" }
-dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "3448f47f09559359732d4b70eac61c968bca17cd" }
-dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "3448f47f09559359732d4b70eac61c968bca17cd" }
+dapple_encode = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
+dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
+dapple_imaging = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
+dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "9a3e95ebe14caac8002de9de26a2e2ec998537cb" }
 # Exedra is pinned to a reviewed `main` revision until it publishes releases.
 exedra_assembly = { default-features = false, features = ["std"], git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }
 exedra_gltf = { git = "https://github.com/forest-rs/exedra", rev = "c1adf63a9b1b7f9c7734044f0f00aa4167368133" }

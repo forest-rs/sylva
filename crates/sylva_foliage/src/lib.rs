@@ -1,14 +1,15 @@
 // Copyright 2026 the Sylva Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Leaves for sylva trees: shapes, meshes, cards, masks and placement.
+//! Leaves for sylva trees: shapes, meshes, cards and placement.
 //!
 //! A [`LeafShape`] describes a blade by one half-width function along its
 //! midrib. From that single description come:
 //!
 //! - [`leaf_mesh`]: the full-detail blade, folded and curled, with UVs;
 //! - [`card_mesh`]: a flat quad for alpha-tested foliage;
-//! - [`leaf_mask`]: the anti-aliased coverage mask the card samples.
+//! - [`LeafShape::outline_at`]: the closed contour, from which
+//!   `sylva_texture` rasterizes the coverage mask the card samples.
 //!
 //! All three share one UV frame ([`LeafShape::uv`]), so the mesh, card and
 //! mask cannot disagree about where the leaf is.
@@ -22,13 +23,12 @@
 //!
 //! # Example
 //! ```rust
-//! use sylva_foliage::{LeafShape, leaf_mask, leaf_mesh};
+//! use sylva_foliage::{LeafShape, leaf_mesh};
 //!
 //! let oak = LeafShape::default();
 //! let blade = leaf_mesh(&oak)?;
 //! assert!(blade.faces().count() > 0);
-//! let mask = leaf_mask(&oak, 64);
-//! assert!(mask.coverage_fraction() > 0.3 && mask.coverage_fraction() < 0.8);
+//! assert!(oak.outline_at(256).len() > oak.outline().len());
 //! # Ok::<(), sylva_foliage::FoliageError>(())
 //! ```
 
@@ -46,7 +46,7 @@ pub use mesh::{card_mesh, leaf_mesh};
 pub use place::{
     Foliage, FoliageParams, FoliageReport, LeafInstance, LeafTemplate, Variation, place_leaves,
 };
-pub use shape::{LeafMask, LeafShape, leaf_mask};
+pub use shape::LeafShape;
 
 #[cfg(test)]
 mod tests;
