@@ -1,0 +1,22 @@
+[package]
+name = "sylva_texture"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tree texture recipes for sylva, built on dapple: tileable bark and leaf material sets"
+keywords = ["procedural", "tree", "texture", "material", "no_std"]
+categories = ["graphics", "game-development", "no-std"]
+publish = false
+
+[dependencies]
+dapple_encode.workspace = true
+dapple_field.workspace = true
+dapple_raster.workspace = true
+glam.workspace = true
+libm.workspace = true
+sylva_foliage.workspace = true
+
+[lints]
+workspace = true

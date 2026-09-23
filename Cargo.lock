@@ -39,6 +39,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "dapple_encode"
+version = "0.0.1"
+source = "git+https://github.com/forest-rs/dapple?rev=dc3aaf89f3c20a74bbe7f0093629f9481099bb17#dc3aaf89f3c20a74bbe7f0093629f9481099bb17"
+dependencies = [
+ "dapple_field",
+ "dapple_raster",
+ "libm",
+ "png",
+]
+
+[[package]]
+name = "dapple_field"
+version = "0.0.1"
+source = "git+https://github.com/forest-rs/dapple?rev=dc3aaf89f3c20a74bbe7f0093629f9481099bb17#dc3aaf89f3c20a74bbe7f0093629f9481099bb17"
+dependencies = [
+ "glam",
+ "libm",
+]
+
+[[package]]
+name = "dapple_raster"
+version = "0.0.1"
+source = "git+https://github.com/forest-rs/dapple?rev=dc3aaf89f3c20a74bbe7f0093629f9481099bb17#dc3aaf89f3c20a74bbe7f0093629f9481099bb17"
+dependencies = [
+ "dapple_field",
+ "glam",
+ "libm",
+]
+
+[[package]]
 name = "exedra_math"
 version = "0.1.0"
 source = "git+https://github.com/forest-rs/exedra?rev=e286bcbebdfd86e2bc0e385c9557faede85a48f3#e286bcbebdfd86e2bc0e385c9557faede85a48f3"
@@ -234,6 +264,7 @@ dependencies = [
 name = "species_gallery"
 version = "0.0.0"
 dependencies = [
+ "dapple_encode",
  "exedra_mesh",
  "png",
  "ron",
@@ -242,6 +273,7 @@ dependencies = [
  "sylva_mesh",
  "sylva_skeleton",
  "sylva_species",
+ "sylva_texture",
 ]
 
 [[package]]
@@ -289,6 +321,18 @@ dependencies = [
  "serde",
  "sylva_foliage",
  "sylva_grow",
+]
+
+[[package]]
+name = "sylva_texture"
+version = "0.0.1"
+dependencies = [
+ "dapple_encode",
+ "dapple_field",
+ "dapple_raster",
+ "glam",
+ "libm",
+ "sylva_foliage",
 ]
 
 [[package]]

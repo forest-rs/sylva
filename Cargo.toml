@@ -6,6 +6,7 @@ members = [
     "crates/sylva_mesh",
     "crates/sylva_skeleton",
     "crates/sylva_species",
+    "crates/sylva_texture",
     "examples/skeleton_dump",
     "examples/species_gallery",
 ]
@@ -76,6 +77,10 @@ clippy.allow_attributes = "warn"
 # `libm` routes every glam math function through the pure-Rust `libm` crate and
 # `scalar-math` disables SIMD code paths, so results are bit-identical across
 # platforms. Determinism is a sylva contract, not a performance afterthought.
+# Dapple is pinned to a reviewed `main` revision until it publishes releases.
+dapple_encode = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "dc3aaf89f3c20a74bbe7f0093629f9481099bb17" }
+dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "dc3aaf89f3c20a74bbe7f0093629f9481099bb17" }
+dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "dc3aaf89f3c20a74bbe7f0093629f9481099bb17" }
 # Exedra is pinned to a reviewed `main` revision until it publishes releases.
 exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "e286bcbebdfd86e2bc0e385c9557faede85a48f3" }
 glam = { default-features = false, features = ["libm", "scalar-math"], version = "0.33.7" }
@@ -86,3 +91,4 @@ sylva_grow = { path = "crates/sylva_grow", version = "0.0.1" }
 sylva_mesh = { path = "crates/sylva_mesh", version = "0.0.1" }
 sylva_skeleton = { path = "crates/sylva_skeleton", version = "0.0.1" }
 sylva_species = { path = "crates/sylva_species", version = "0.0.1" }
+sylva_texture = { path = "crates/sylva_texture", version = "0.0.1" }

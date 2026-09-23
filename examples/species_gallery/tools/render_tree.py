@@ -5,10 +5,12 @@
 
     blender --background --python examples/species_gallery/tools/render_tree.py -- target/species-gallery/oak-seed1
 
-Imports `bark.obj` and `leaves.obj` unchanged (sylva is Z-up, like Blender),
-colors bark brown and leaves green, and renders them two-sided. Writes
-`tree.png` (whole tree) and `tree-leaves.png` (a close view of the crown edge)
-next to the input.
+Imports `bark.obj` and `leaves.obj` unchanged (sylva is Z-up, like Blender)
+and renders them two-sided. When the species' generated textures exist
+(`../textures/<species>-bark/gltf` and `-leaf/gltf`), bark and leaves show
+their base colour; otherwise they are flat brown and green. Writes `tree.png`
+(whole tree), `tree-leaves.png` (the crown edge) and `tree-bark.png` (the
+trunk base) next to the input.
 """
 
 import math
@@ -29,13 +31,13 @@ def args():
     return Path(argv[0])
 
 
-def reset_scene():
+def reset_scene(textured):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_WORKBENCH"
     shading = scene.display.shading
     shading.light = "STUDIO"
-    shading.color_type = "OBJECT"
+    shading.color_type = "TEXTURE" if textured else "OBJECT"
     shading.show_cavity = True
     shading.show_shadows = True
     shading.show_backface_culling = False
@@ -47,10 +49,25 @@ def reset_scene():
     return scene
 
 
-def load(path, color):
+def textured_material(name, image_path):
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    nodes = material.node_tree.nodes
+    tex = nodes.new("ShaderNodeTexImage")
+    tex.image = bpy.data.images.load(str(image_path))
+    bsdf = nodes["Principled BSDF"]
+    material.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    nodes.active = tex
+    return material
+
+
+def load(path, color, texture):
     bpy.ops.wm.obj_import(filepath=str(path), forward_axis="Y", up_axis="Z")
     obj = bpy.context.selected_objects[0]
     obj.color = color
+    if texture is not None and texture.exists():
+        obj.data.materials.clear()
+        obj.data.materials.append(textured_material(path.stem, texture))
     return obj
 
 
@@ -85,21 +102,24 @@ def add_camera(scene, target, distance, azimuth, elevation, name):
 
 def main():
     out_dir = args()
-    scene = reset_scene()
-    bark = load(out_dir / "bark.obj", BARK)
-    objects = [bark]
+    species = out_dir.name.split("-seed")[0]
+    textures = out_dir.parent / "textures"
+    bark_tex = textures / f"{species}-bark" / "gltf" / "base_color.png"
+    leaf_tex = textures / f"{species}-leaf" / "gltf" / "base_color.png"
+    scene = reset_scene(bark_tex.exists())
+    objects = [load(out_dir / "bark.obj", BARK, bark_tex)]
     leaves_path = out_dir / "leaves.obj"
     if leaves_path.exists():
-        objects.append(load(leaves_path, LEAF))
+        objects.append(load(leaves_path, LEAF, leaf_tex))
     bpy.context.view_layer.update()
     lo, hi = bounds(objects)
     center = (lo + hi) * 0.5
     size = max((hi - lo).length, 1.0)
-    azimuth = math.radians(-60)
     edge = Vector((center.x + 0.35 * (hi.x - lo.x), center.y, center.z + 0.1 * (hi.z - lo.z)))
     views = [
-        ("tree.png", center, size * 1.3, azimuth, math.radians(10)),
-        ("tree-leaves.png", edge, 2.2, math.radians(-20), math.radians(15)),
+        ("tree.png", center, size * 1.3, math.radians(-60), math.radians(10)),
+        ("tree-leaves.png", edge, 1.2, math.radians(-20), math.radians(15)),
+        ("tree-bark.png", Vector((0.0, 0.0, 1.2)), 2.2, math.radians(-60), math.radians(8)),
     ]
     for filename, target, distance, az, elevation in views:
         cam = add_camera(scene, target, distance, az, elevation, filename)
