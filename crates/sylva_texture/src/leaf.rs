@@ -64,10 +64,14 @@ impl Default for LeafRecipe {
         Self {
             shape: LeafShape::default(),
             size: 256,
-            green: [0.045, 0.11, 0.022],
-            vein: [0.12, 0.2, 0.06],
-            translucent: [0.2, 0.36, 0.05],
-            translucency: 0.4,
+            // A deep, saturated summer green; oak's upper surface is dark
+            // and waxy.
+            green: [0.022, 0.066, 0.009],
+            vein: [0.07, 0.13, 0.03],
+            // Transmitted light is a vivid yellow-green: chlorophyll absorbs
+            // red and blue on the way through.
+            translucent: [0.26, 0.48, 0.035],
+            translucency: 0.5,
             vein_width: 0.012,
             vein_relief: 0.0004,
             mottle: 0.15,
