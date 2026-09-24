@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 dapple_encode = { features = ["std"], workspace = true }
 dapple_graph = { features = ["serde"], workspace = true }
+dapple_lab.workspace = true
 exedra_mesh = { features = ["std"], workspace = true }
 png = "0.18.1"
 ron = "0.11.0"
@@ -20,7 +21,9 @@ sylva_asset.workspace = true
 sylva_bake.workspace = true
 sylva_foliage.workspace = true
 sylva_gltf.workspace = true
+sylva_grow.workspace = true
 sylva_lod.workspace = true
+sylva_measure = { features = ["serde"], workspace = true }
 sylva_mesh.workspace = true
 sylva_skeleton.workspace = true
 sylva_species = { features = ["serde"], workspace = true }

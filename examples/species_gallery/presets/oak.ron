@@ -132,10 +132,12 @@ Species(
         // Leaves crowd the outer shell; inside the crown, where the light
         // is gone, most twigs are bare, so the great limbs show.
         shade: Some((shell: 0.3, interior: 0.1)),
+        // The exponent keeps the stem within the reference's slenderness
+        // (height over breast-height diameter at least 10) on every seed.
         // Twig tips are 4 mm; the skeleton stops at twigs, so each metre of
         // centerline also carries the flow of the unmodeled shoots on it.
         // The bole keeps thickening below the lowest limb.
-        radii: (tip_radius: 0.004, exponent: 2.55, shoots_per_metre: 16.0, bole_taper: 0.08),
+        radii: (tip_radius: 0.004, exponent: 2.68, shoots_per_metre: 16.0, bole_taper: 0.08),
         segment_length: 0.3,
     )),
     // Pedunculate-oak leaves: obovate, five rounded lobes a side, clustered

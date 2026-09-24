@@ -1,0 +1,31 @@
+// Reference ranges for an open-grown Norway spruce (Picea abies), as derived
+// statistics: broad bands containing the published relationships at the
+// preset's size, not values copied from one table. Sources (full citations
+// in sylva_measure's docs):
+//
+// - "pretzsch2015": Pretzsch et al. 2015, open-grown crown and height
+//   allometry against stem diameter;
+// - "kantola2004": Kantola & Mäkelä 2004, crown length, width and branch
+//   structure of Norway spruce;
+// - "sylva": a review target of sylva's own where the literature gives no
+//   number.
+(
+    species: "Picea abies, open-grown",
+    ranges: [
+        // A narrow cone, several times taller than wide.
+        (name: "allometry.height_to_crown_width", lo: 2.0, hi: 4.5, source: "kantola2004"),
+        // Conifers carry narrower crowns per unit stem than broadleaves.
+        (name: "allometry.crown_width_to_dbh", lo: 8.0, hi: 22.0, source: "pretzsch2015"),
+        // Open-grown spruce is far stouter than stand-grown (80 to 100).
+        (name: "allometry.slenderness", lo: 35.0, hi: 80.0, source: "pretzsch2015"),
+        // In the open, lower branches stay green nearly to the ground.
+        (name: "allometry.crown_ratio", lo: 0.8, hi: 0.98, source: "kantola2004"),
+        (name: "allometry.height", lo: 15.0, hi: 35.0, source: "pretzsch2015"),
+        // Whorl branches leave near level, the lower ones drooping.
+        (name: "form.branch_angle.order1.mean", lo: 60.0, hi: 110.0, source: "kantola2004"),
+        // A dense spruce crown shows little sky.
+        (name: "crown.sky_fraction", lo: 0.02, hi: 0.25, source: "sylva"),
+        (name: "colour.leaf.srgb_green", lo: 30.0, hi: 70.0, source: "sylva"),
+        (name: "colour.bark.srgb_luma", lo: 35.0, hi: 95.0, source: "sylva"),
+    ],
+)

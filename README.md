@@ -33,6 +33,11 @@ The design lives in [`docs/design.md`](docs/design.md).
 - **[sylva_lod](crates/sylva_lod/)**: level-of-detail chains regenerated from
   the skeleton: coarser bark, pruned twig bark, nested leaf subsets that keep
   canopy leaf area, and leaf cards, with screen-size thresholds.
+- **[sylva_measure](crates/sylva_measure/)**: measured realism. Allometry
+  (height, crown width, stem diameter and their ratios), stem taper, branch
+  angles per order and crown silhouette statistics of a grown skeleton, in
+  `dapple_lab`'s report format, bounded by species reference ranges from
+  forestry literature, which also serve as `dapple_lab::fit` targets.
 - **[sylva_species](crates/sylva_species/)**: species descriptions as data
   (with the `serde` feature), naming a growth backend and its parameters,
   plus optional foliage.

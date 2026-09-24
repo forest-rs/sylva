@@ -45,6 +45,14 @@
 //! Outputs default to `.local/gallery/`, which is git-ignored and survives
 //! `cargo clean`; `target/` holds build artifacts only.
 //!
+//! `--measure` runs the reference harness instead: for every preset with a
+//! `presets/<name>_reference.ron` (reference ranges with their sources), it
+//! writes a `dapple_lab` report per seed to `.local/gallery/measure/`,
+//! `summary.json`, and `contact.png` (each tree's silhouette, framed green
+//! when its report passes). `--fit` fits five oak parameters to the oak
+//! reference with `dapple_lab::fit`, writing `oak-fit.json` and
+//! `oak-fitted.ron` there, and prints hand-tuned and fitted losses.
+//!
 //! `--species oak,spruce` grows only those presets, `--preset FILE` grows
 //! a preset read from disk (with its bark and leaf files beside it) instead
 //! of the built-in ones, and `--skeleton-only` writes just each seed's
@@ -73,6 +81,7 @@
 
 mod card;
 mod lod_spec;
+mod measure;
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -96,11 +105,12 @@ use sylva_species::Species;
 
 /// One species preset: its growth and foliage, its bark recipe (dapple's
 /// format, scaled to a 1 m tile), and optionally its leaf colours.
-struct Preset {
-    species: String,
-    bark: String,
-    leaf: Option<String>,
+pub(crate) struct Preset {
+    pub(crate) species: String,
+    pub(crate) bark: String,
+    pub(crate) leaf: Option<String>,
     lod: Option<String>,
+    pub(crate) reference: Option<String>,
 }
 
 /// The built-in presets, as `(species, bark, leaf colours, LOD chain)`
@@ -121,19 +131,25 @@ const PRESETS: [(&str, &str, Option<&str>, Option<&str>); 2] = [
 ];
 #[cfg(test)]
 const OAK: &str = PRESETS[0].0;
+/// Each built-in preset's reference ranges (`<name>_reference.ron`), in
+/// [`PRESETS`] order.
+const REFERENCES: [&str; 2] = [
+    include_str!("../presets/oak_reference.ron"),
+    include_str!("../presets/spruce_reference.ron"),
+];
 const SEEDS: [u64; 3] = [1, 2, 3];
 
 /// A species' leaf colours: the fields of [`LeafRecipe`] a preset may set,
 /// read from `<species>_leaf.ron`.
 #[derive(serde::Deserialize)]
 #[serde(default)]
-struct LeafLook {
-    green: [f32; 3],
-    vein: [f32; 3],
-    translucent: [f32; 3],
-    translucency: f32,
-    mottle: f32,
-    roughness: f32,
+pub(crate) struct LeafLook {
+    pub(crate) green: [f32; 3],
+    pub(crate) vein: [f32; 3],
+    pub(crate) translucent: [f32; 3],
+    pub(crate) translucency: f32,
+    pub(crate) mottle: f32,
+    pub(crate) roughness: f32,
 }
 
 impl Default for LeafLook {
@@ -163,6 +179,7 @@ fn read_preset(path: &std::path::Path) -> Result<Preset, Box<dyn std::error::Err
         bark: std::fs::read_to_string(sibling("_bark.toml"))?,
         leaf: std::fs::read_to_string(sibling("_leaf.ron")).ok(),
         lod: std::fs::read_to_string(sibling("_lod.ron")).ok(),
+        reference: std::fs::read_to_string(sibling("_reference.ron")).ok(),
     })
 }
 
@@ -173,6 +190,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut welded = false;
     let mut glb_only = false;
     let mut skeleton_only = false;
+    let mut measure_only = false;
+    let mut fit = false;
     let mut preset = None;
     let mut only: Option<Vec<String>> = None;
     let mut args = std::env::args().skip(1);
@@ -186,6 +205,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--welded" => welded = true,
             "--glb-only" => glb_only = true,
             "--skeleton-only" => skeleton_only = true,
+            "--measure" => measure_only = true,
+            "--fit" => fit = true,
             "--species" => {
                 let list = args
                     .next()
@@ -200,14 +221,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(path) => vec![read_preset(std::path::Path::new(path))?],
         None => PRESETS
             .iter()
-            .map(|&(species, bark, leaf, lod)| Preset {
+            .zip(REFERENCES)
+            .map(|(&(species, bark, leaf, lod), reference)| Preset {
                 species: species.into(),
                 bark: bark.into(),
                 leaf: leaf.map(Into::into),
                 lod: lod.map(Into::into),
+                reference: Some(reference.into()),
             })
             .collect(),
     };
+    if measure_only {
+        let dir = out_dir.parent().unwrap_or(&out_dir).join("measure");
+        return measure::run(&dir, &presets, &seeds, only.as_deref());
+    }
+    if fit {
+        let dir = out_dir.parent().unwrap_or(&out_dir).join("measure");
+        return measure::fit_oak(&dir, &presets);
+    }
     for preset in &presets {
         let species: Species = ron::from_str(&preset.species)?;
         if only
@@ -947,7 +978,10 @@ mod tests {
     fn presets_parse_and_grow() {
         for (species, bark, leaf, lod) in PRESETS {
             let species: Species = ron::from_str(species).expect("species");
-            let _: dapple_graph::Recipe = toml::from_str(bark).expect("bark recipe");
+            let recipe: dapple_graph::Recipe = toml::from_str(bark).expect("bark recipe");
+            // Fingerprinting checks the version and the graph without
+            // realizing it.
+            recipe.fingerprint().expect("a valid bark recipe");
             if let Some(leaf) = leaf {
                 let _: LeafLook = ron::from_str(leaf).expect("leaf colours");
             }
@@ -990,6 +1024,38 @@ mod tests {
                     species.name,
                     budget.triangles
                 );
+            }
+        }
+    }
+
+    /// Every preset's allometry and crown form stay inside its reference
+    /// ranges (`<name>_reference.ron`) for seeds 1 to 3. Texture colour is
+    /// checked by the gallery's `--measure` run, which realizes textures.
+    #[test]
+    fn presets_meet_their_reference_allometry() {
+        for ((species, ..), reference) in PRESETS.iter().zip(super::REFERENCES) {
+            let species: Species = ron::from_str(species).expect("species");
+            let reference: sylva_measure::Reference = ron::from_str(reference).expect("reference");
+            let targets = crate::measure::form_targets(&reference);
+            assert!(!targets.is_empty(), "{} has form ranges", species.name);
+            for seed in 1..=3 {
+                let m = crate::measure::measure_seed(&species, seed).expect("measure");
+                for range in reference
+                    .ranges
+                    .iter()
+                    .filter(|r| !r.name.starts_with("colour."))
+                {
+                    let value = m.value(&range.name).expect("a known measurement");
+                    assert!(
+                        (range.lo..=range.hi).contains(&value),
+                        "{} seed {seed}: {} = {value:.3} outside [{}, {}] ({})",
+                        species.name,
+                        range.name,
+                        range.lo,
+                        range.hi,
+                        range.source
+                    );
+                }
             }
         }
     }

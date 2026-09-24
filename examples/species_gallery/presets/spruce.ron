@@ -110,14 +110,17 @@ Species(
         envelope: Some((
             base: 1.2,
             height: 21.0,
-            radius: 5.6,
+            radius: 4.5,
             profile: [(0.0, 0.95), (0.15, 1.0), (0.6, 0.6), (1.0, 0.05)],
             from_level: 0,
             min_fraction: 0.3,
             lumps: 0.15,
             lump_size: 2.0,
         )),
-        radii: (tip_radius: 0.003, exponent: 2.4, shoots_per_metre: 12.0, bole_taper: 0.04),
+        // A slender stem: open-grown Norway spruce stands 35 to 80 times
+        // taller than its breast-height diameter (the reference's
+        // slenderness range).
+        radii: (tip_radius: 0.003, exponent: 2.65, shoots_per_metre: 6.0, bole_taper: 0.04),
         segment_length: 0.25,
     )),
     // Needle sprays: a shoot's needles as a spray about 14 cm long and

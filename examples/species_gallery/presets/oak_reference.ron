@@ -1,0 +1,34 @@
+// Reference ranges for an open-grown, mature pedunculate oak (Quercus
+// robur), as derived statistics. Ranges are deliberately broad bands that
+// contain the published relationships at the preset's size (stem diameter
+// about 1 to 1.7 m); they are not values copied from one table. Sources
+// (full citations in sylva_measure's docs):
+//
+// - "pretzsch2015": Pretzsch et al. 2015, open-grown crown radius, height
+//   and crown projection area against stem diameter;
+// - "hemery2005": Hemery, Savill & Pryor 2005, crown diameter over stem
+//   diameter (K/d) of British broadleaves;
+// - "sylva": a review target of sylva's own where the literature gives no
+//   number.
+(
+    species: "Quercus robur, open-grown",
+    ranges: [
+        // Open-grown oaks spread as wide as, or wider than, they are tall.
+        (name: "allometry.height_to_crown_width", lo: 0.6, hi: 1.3, source: "pretzsch2015"),
+        // K/d settles for mature broadleaves; oak's is mid-range.
+        (name: "allometry.crown_width_to_dbh", lo: 12.0, hi: 30.0, source: "hemery2005"),
+        // Height over stem diameter of a stout park oak.
+        (name: "allometry.slenderness", lo: 10.0, hi: 35.0, source: "pretzsch2015"),
+        // Crowns reach low when grown in the open, though park oaks often
+        // carry a clear bole of 4 to 6 m.
+        (name: "allometry.crown_ratio", lo: 0.5, hi: 0.95, source: "pretzsch2015"),
+        (name: "allometry.height", lo: 12.0, hi: 30.0, source: "pretzsch2015"),
+        // Scaffold limbs leave the stem at wide, irregular angles.
+        (name: "form.branch_angle.order1.mean", lo: 40.0, hi: 85.0, source: "sylva"),
+        // An open-grown oak crown is gappy: its limbs show against the sky.
+        (name: "crown.sky_fraction", lo: 0.08, hi: 0.4, source: "sylva"),
+        // Mid-summer upper-leaf albedo, sRGB green channel.
+        (name: "colour.leaf.srgb_green", lo: 55.0, hi: 85.0, source: "sylva"),
+        (name: "colour.bark.srgb_luma", lo: 35.0, hi: 95.0, source: "sylva"),
+    ],
+)
