@@ -13,67 +13,79 @@ Species(
             length_jitter: 0.1,
             lean: 0.03,
             shape: (gnarl: 0.01, gnarl_wavelength: 4.0),
+            // The top of the stem is young and needled, which with the dense
+            // upper whorls hides it: bare bark shows only below the crown.
+            sites: Some((
+                per_metre: 24.0,
+                span: (0.7, 1.0),
+                kind: 0,
+                angle: 0.3,
+                tip_cluster: 6,
+                cluster_span: 0.04,
+            )),
         ),
         levels: [
-            // Branch whorls, two a metre, four to six branches each.
+            // Branch whorls, about two and a half a metre (a year's growth
+            // plus the smaller branches between whorls), five each.
             (
-                count: PerMetre(9.0),
-                span: (0.06, 0.97),
+                count: PerMetre(13.0),
+                span: (0.08, 0.97),
                 arrangement: Whorled(per_node: 5),
                 roll_jitter: 0.35,
                 position_jitter: 0.3,
                 // Lower branches leave at or below level; the top ones climb.
-                angle: [(0.0, 1.85), (0.4, 1.6), (0.8, 1.2), (1.0, 0.7)],
+                angle: [(0.0, 1.7), (0.4, 1.55), (0.8, 1.35), (1.0, 1.1)],
                 angle_jitter: 0.12,
                 // A cone: longest at the bottom, nothing at the top.
-                length: [(0.0, 0.24), (0.35, 0.18), (0.8, 0.07), (1.0, 0.02)],
+                length: [(0.0, 0.24), (0.35, 0.18), (0.8, 0.09), (1.0, 0.03)],
                 length_jitter: 0.2,
                 balance: 0.3,
-                // Droop, then turn up at the tip.
+                // Droop a little, then curve up toward the tip.
                 shape: (
-                    curve: -0.25,
-                    curve_back: 0.55,
+                    curve: -0.15,
+                    curve_back: 0.8,
                     gnarl: 0.08,
                     gnarl_wavelength: 1.0,
                     sag: 0.05,
                 ),
                 sites: Some((
-                    per_metre: 20.0,
+                    per_metre: 10.0,
                     span: (0.35, 1.0),
                     kind: 0,
-                    angle: 0.45,
+                    angle: 0.3,
                     tip_cluster: 3,
                     cluster_span: 0.06,
                 )),
             ),
-            // Side shoots, mostly in the branch's plane, hanging in combs.
+            // Side shoots, mostly in the branch's plane, hanging in combs
+            // that curtain down from the branch.
             (
-                count: PerMetre(4.5),
+                count: PerMetre(6.0),
                 span: (0.08, 0.95),
                 arrangement: Alternate,
                 roll_jitter: 0.5,
                 position_jitter: 0.6,
                 angle: [(0.0, 1.0), (1.0, 0.75)],
                 angle_jitter: 0.2,
-                length: [(0.0, 0.4), (0.5, 0.33), (1.0, 0.15)],
+                length: [(0.0, 0.45), (0.5, 0.38), (1.0, 0.18)],
                 length_jitter: 0.25,
                 shape: (
-                    gnarl: 0.2,
+                    gnarl: 0.15,
                     gnarl_wavelength: 0.5,
-                    sag: 0.8,
+                    sag: 1.6,
                 ),
                 sites: Some((
-                    per_metre: 26.0,
+                    per_metre: 11.0,
                     span: (0.1, 1.0),
                     kind: 0,
-                    angle: 0.55,
+                    angle: 0.3,
                     tip_cluster: 3,
                     cluster_span: 0.08,
                 )),
             ),
             // Twigs: the finest shoots, all carrying needles.
             (
-                count: PerMetre(10.0),
+                count: PerMetre(11.0),
                 span: (0.1, 0.95),
                 arrangement: Alternate,
                 roll_jitter: 0.6,
@@ -82,24 +94,25 @@ Species(
                 angle_jitter: 0.25,
                 length: [(0.0, 0.35), (1.0, 0.2)],
                 length_jitter: 0.3,
-                shape: (gnarl: 0.3, gnarl_wavelength: 0.2, sag: 0.4),
+                shape: (gnarl: 0.3, gnarl_wavelength: 0.2, sag: 0.7),
                 sites: Some((
-                    per_metre: 30.0,
+                    per_metre: 12.0,
                     span: (0.1, 1.0),
                     kind: 0,
-                    angle: 0.55,
+                    angle: 0.3,
                     tip_cluster: 2,
                     cluster_span: 0.1,
                 )),
             ),
         ],
-        // A narrow cone; side shoots are trimmed to it, loosely.
+        // A narrow cone, loosely trimmed. Its base self-prunes the lowest
+        // branches where they would droop to the ground.
         envelope: Some((
-            base: 0.5,
-            height: 21.5,
-            radius: 5.2,
-            profile: [(0.0, 0.95), (0.15, 1.0), (0.6, 0.55), (1.0, 0.03)],
-            from_level: 1,
+            base: 1.2,
+            height: 21.0,
+            radius: 5.6,
+            profile: [(0.0, 0.95), (0.15, 1.0), (0.6, 0.6), (1.0, 0.05)],
+            from_level: 0,
             min_fraction: 0.3,
             lumps: 0.15,
             lump_size: 2.0,
@@ -107,33 +120,37 @@ Species(
         radii: (tip_radius: 0.003, exponent: 2.4, shoots_per_metre: 12.0, bole_taper: 0.04),
         segment_length: 0.25,
     )),
-    // Needle sprays: a shoot's needles, flattened into a spray about 15 cm
-    // long with needles 2 to 3 cm, several around every shoot. Needles are
-    // drawn about twice their 1.5 mm width so they survive at a distance.
+    // Needle sprays: a shoot's needles as a spray about 14 cm long and
+    // even in width, needles about 2 cm standing well out from the midrib,
+    // drawn a little over their 1.5 mm width with clear gaps between. Three
+    // per site, crossed, make a bottle brush around the shoot.
     foliage: Some((
         site_kind: 0,
         shape: (
-            length: 0.15,
-            width: 0.36,
-            widest_at: 0.35,
-            tip: 0.9,
+            length: 0.14,
+            width: 0.3,
+            widest_at: 0.3,
+            tip: 0.25,
             lobes: 0,
             lobe_depth: 0.0,
             petiole: 0.0,
             fold: 0.45,
             curl: 0.04,
             stations: 6,
-            lobe_skew: 0.9,
+            lobe_skew: 0.5,
             auricle: 0.0,
-            leaflets: 32,
-            leaflet_width: 0.02,
+            leaflets: 20,
+            leaflet_width: 0.012,
             leaflet_span: 0.02,
         ),
         variants: 4,
         variation: (size: 0.2, width: 0.15, lobe_depth: 0.0),
         droop: 0.1,
-        light: 0.5,
+        // Sprays keep their roll about the shoot, and three per site
+        // clothe it all round.
+        light: 0.1,
         roll_jitter: 0.6,
+        whorl: 3,
         seed: 3,
     )),
 )

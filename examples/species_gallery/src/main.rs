@@ -975,6 +975,47 @@ mod tests {
         }
     }
 
+    /// Oaks stand near upright with balanced crowns: over sixteen seeds the
+    /// stem's top stays within a tenth of its length of the base's
+    /// vertical, and the leaves' centroid within a sixth of the crown's
+    /// radius of the stem.
+    #[test]
+    fn oaks_stand_upright_with_balanced_crowns() {
+        let species: Species = ron::from_str(OAK).expect("preset");
+        for seed in 1..=16 {
+            let grown = species.grow(seed).expect("grow");
+            let trunk = &grown.skeleton.branches()[0];
+            let (base, top) = (
+                trunk.nodes[0].position,
+                trunk.nodes[trunk.nodes.len() - 1].position,
+            );
+            let drift = (top - base).truncate().length();
+            assert!(
+                drift < 0.1 * trunk.length(),
+                "seed {seed}: stem drifts {drift}"
+            );
+            let sites = grown.skeleton.sites();
+            let points: Vec<_> = sites
+                .iter()
+                .map(|s| {
+                    let b = grown.skeleton.branch(s.branch).expect("branch");
+                    b.sample(s.t).position.truncate()
+                })
+                .collect();
+            let centroid =
+                points.iter().copied().sum::<sylva_skeleton::glam::Vec2>() / points.len() as f32;
+            let radius = points
+                .iter()
+                .map(|p| p.distance(centroid))
+                .fold(0.0, f32::max);
+            let offset = (centroid - base.truncate()).length();
+            assert!(
+                offset < radius / 6.0,
+                "seed {seed}: crown offset {offset} of {radius}"
+            );
+        }
+    }
+
     fn libm_acos(x: f32) -> f32 {
         x.clamp(-1.0, 1.0).acos()
     }
