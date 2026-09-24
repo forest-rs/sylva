@@ -179,3 +179,65 @@ pub fn bark_module(
         fingerprint: None,
     })
 }
+
+/// One stage of a stem's bark: the bark a module grows at a height on the
+/// trunk, where the stem has a girth.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct BarkStage {
+    /// Height on the trunk, metres.
+    pub height: f32,
+    /// The stem's circumference there, metres.
+    pub girth: f32,
+}
+
+/// Runs `module` at every stage of a stem, lowest first (see
+/// [`bark_module`]).
+///
+/// Real bark changes up a stem: birch is dark and fissured at the base and
+/// white above; pine carries grey plates low and thin orange flakes high.
+/// A renderer draws a stem continuously by blending, at each height, the
+/// two stages that bracket it ([`bark_stage_blend`]).
+///
+/// # Errors
+///
+/// [`TextureError::Params`] when stages are empty or not ascending in
+/// height, or [`bark_module`]'s errors.
+pub fn bark_stages(
+    module: &dyn Module,
+    stages: &[BarkStage],
+    size: u32,
+) -> Result<Vec<BarkSet>, TextureError> {
+    if stages.is_empty() || stages.windows(2).any(|w| w[0].height >= w[1].height) {
+        return Err(TextureError::Params { name: "stages" });
+    }
+    stages
+        .iter()
+        .map(|stage| bark_module(module, stage.girth, stage.height, size))
+        .collect()
+}
+
+/// Which stages to blend at `height`: the indices of the two stages whose
+/// heights bracket it and the weight of the upper one, in `[0, 1]`,
+/// linear in height between them. Below the first stage and above the last
+/// the nearest stage holds alone.
+///
+/// This is the contract every renderer of staged bark follows, so a stem
+/// looks the same everywhere.
+///
+/// # Panics
+///
+/// Panics when `heights` is empty.
+#[must_use]
+pub fn bark_stage_blend(heights: &[f32], height: f32) -> (usize, usize, f32) {
+    let last = heights.len() - 1;
+    if height <= heights[0] {
+        return (0, 0, 0.0);
+    }
+    if height >= heights[last] {
+        return (last, last, 0.0);
+    }
+    let upper = heights.iter().position(|&h| h > height).unwrap_or(last);
+    let lower = upper - 1;
+    let t = (height - heights[lower]) / (heights[upper] - heights[lower]);
+    (lower, upper, t)
+}

@@ -271,3 +271,78 @@ fn bark_modules_follow_the_stem() {
         Err(TextureError::Params { name: "size" })
     ));
 }
+
+#[test]
+fn bark_stages_blend_linearly_between_bracketing_heights() {
+    use crate::{BarkStage, bark_stage_blend, bark_stages};
+    use dapple_library::modules::Birch;
+
+    let heights = [0.3, 1.3, 6.0];
+    assert_eq!(bark_stage_blend(&heights, 0.0), (0, 0, 0.0));
+    assert_eq!(bark_stage_blend(&heights, 9.0), (2, 2, 0.0));
+    let (lo, hi, t) = bark_stage_blend(&heights, 0.8);
+    assert_eq!((lo, hi), (0, 1));
+    assert!((t - 0.5).abs() < 1e-6);
+    let (lo, hi, t) = bark_stage_blend(&heights, 1.3);
+    assert!((lo, hi) == (0, 1) && (t - 1.0).abs() < 1e-6 || (lo, hi, t) == (1, 2, 0.0));
+
+    let stages = [
+        BarkStage {
+            height: 0.3,
+            girth: 1.2,
+        },
+        BarkStage {
+            height: 6.0,
+            girth: 0.6,
+        },
+    ];
+    let sets = bark_stages(&Birch, &stages, 32).expect("stages");
+    assert_eq!(sets.len(), 2);
+    let mean = |set: &crate::BarkSet| {
+        let v = set.maps.base_color.as_ref().expect("colour").values();
+        v.iter().sum::<f32>() / v.len() as f32
+    };
+    assert!(mean(&sets[1]) > mean(&sets[0]), "birch whitens up the stem");
+    assert!(matches!(
+        bark_stages(&Birch, &[stages[1], stages[0]], 32),
+        Err(TextureError::Params { name: "stages" })
+    ));
+}
+
+#[test]
+fn pine_bark_turns_orange_up_the_stem() {
+    use crate::{BarkStage, bark_stages};
+    use dapple_library::modules::ScotsPine;
+
+    let sets = bark_stages(
+        &ScotsPine,
+        &[
+            BarkStage {
+                height: 1.3,
+                girth: 1.4,
+            },
+            BarkStage {
+                height: 14.0,
+                girth: 0.5,
+            },
+        ],
+        32,
+    )
+    .expect("pine stages");
+    // Red over blue: grey plates low, orange flakes high.
+    let warmth = |set: &crate::BarkSet| {
+        let v = set.maps.base_color.as_ref().expect("colour").values();
+        let (mut r, mut b) = (0.0, 0.0);
+        for texel in v.chunks(3) {
+            r += texel[0];
+            b += texel[2];
+        }
+        r / b.max(1e-6)
+    };
+    assert!(
+        warmth(&sets[1]) > warmth(&sets[0]) * 1.2,
+        "{} vs {}",
+        warmth(&sets[1]),
+        warmth(&sets[0])
+    );
+}
