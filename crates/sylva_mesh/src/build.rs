@@ -810,9 +810,14 @@ fn stations(
     // Profile rings near the base, where the radius changes fastest.
     let (extra, from, to) = match *profile {
         Profile::Plain => (0, 0.0, 0.0),
+        // A branch drawn with the fewest segments is too thin for a fillet
+        // to show; its collar still swells the rings it has.
         Profile::Collar {
             ring_span, rings, ..
-        } => (rings, ring_span.0, ring_span.1),
+        } if segment_count(branch.nodes[0].radius, params) > params.rings.min_segments => {
+            (rings, ring_span.0, ring_span.1)
+        }
+        Profile::Collar { .. } => (0, 0.0, 0.0),
         Profile::Flare { flare, .. } => (flare.rings, 0.0, 3.0 * flare.height),
     };
     let to = to.min(0.5 * total);

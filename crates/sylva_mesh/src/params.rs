@@ -131,7 +131,9 @@ pub struct Collar {
     /// How far collar normals blend toward the parent's surface normal
     /// where the child meets it, in `[0, 1]`.
     pub normal_blend: f32,
-    /// Extra rings placed where the child leaves the parent.
+    /// Extra rings placed where the child leaves the parent, on branches
+    /// drawn with more than [`RingResolution::min_segments`] segments; a
+    /// thinner branch is too thin for a fillet to show.
     pub rings: u32,
 }
 
