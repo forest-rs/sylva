@@ -256,6 +256,13 @@ impl Default for Sites {
 /// inside when `u = (z - base) / height` lies in `[0, 1]` and
 /// `d <= radius * profile(u)`. Points below ground (`z < 0`) are always
 /// outside.
+///
+/// A smooth envelope trims every branch that reaches it at the same surface,
+/// which reads as a clipped hedge. `lumps` breaks it up: before the test, a
+/// point is pulled toward the envelope's middle (on the trunk axis, halfway
+/// up) by a keyed, smooth 3D noise with features `lump_size` metres across,
+/// so the surface bulges out and dips in by up to `lumps` of its distance
+/// from the middle, top and bottom included.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Envelope {
@@ -273,6 +280,21 @@ pub struct Envelope {
     /// A pruned branch shorter than this fraction of its intended length is
     /// removed instead of truncated.
     pub min_fraction: f32,
+    /// Relative depth of the keyed bulges and dips in the surface, in
+    /// `[0, 1)`; 0 for a smooth envelope.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub lumps: f32,
+    /// Size of one bulge, in metres.
+    #[cfg_attr(feature = "serde", serde(default = "default_lump_size"))]
+    pub lump_size: f32,
+}
+
+/// The default [`Envelope::lump_size`], in metres.
+pub const DEFAULT_LUMP_SIZE: f32 = 3.0;
+
+#[cfg(feature = "serde")]
+fn default_lump_size() -> f32 {
+    DEFAULT_LUMP_SIZE
 }
 
 /// Pipe-model radius settings.

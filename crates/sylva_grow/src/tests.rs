@@ -184,6 +184,8 @@ fn envelope_prunes_and_counts() {
         profile: Curve::new(vec![[0.0, 0.5], [0.5, 1.0], [1.0, 0.2]]).expect("profile"),
         from_level: 0,
         min_fraction: 0.2,
+        lumps: 0.0,
+        lump_size: 3.0,
     });
     let grown = grow(&h, 9).expect("grow");
     let envelope = h.envelope.as_ref().expect("envelope");
@@ -405,4 +407,44 @@ fn ranged_counts_vary_by_seed_within_bounds() {
     assert!(counts.contains(&3) && counts.contains(&6), "{counts:?}");
     h.levels[0].count = Count::Range { min: 4, max: 2 };
     assert!(grow(&h, 1).is_err());
+}
+
+#[test]
+fn lumpy_envelopes_stay_within_their_bulge_and_vary_the_trim() {
+    let mut h = fixture();
+    let smooth = Envelope {
+        base: 2.0,
+        height: 7.0,
+        radius: 2.0,
+        profile: Curve::new(vec![[0.0, 0.5], [0.5, 1.0], [1.0, 0.2]]).expect("profile"),
+        from_level: 0,
+        min_fraction: 0.2,
+        lumps: 0.0,
+        lump_size: 1.5,
+    };
+    h.envelope = Some(smooth.clone());
+    let plain = grow(&h, 9).expect("grow");
+    let lumpy = Envelope {
+        lumps: 0.3,
+        ..smooth
+    };
+    h.envelope = Some(lumpy.clone());
+    let grown = grow(&h, 9).expect("grow");
+    let middle = Vec3::new(0.0, 0.0, lumpy.base + 0.5 * lumpy.height);
+    for branch in grown.skeleton.branches().iter().filter(|b| b.order > 0) {
+        for node in &branch.nodes[1..] {
+            // Shrunk by the largest bulge, every node is inside the smooth
+            // envelope.
+            let p = middle + (node.position - middle) / (1.0 + lumpy.lumps);
+            let u = (p.z - lumpy.base) / lumpy.height;
+            let d = Vec3::new(p.x, p.y, 0.0).length();
+            assert!(
+                (0.0..=1.0).contains(&u) && d <= lumpy.radius * lumpy.profile.eval(u),
+                "node {} outside the bulge",
+                node.position
+            );
+        }
+    }
+    let nodes = |g: &crate::Grown| g.report.nodes;
+    assert_ne!(nodes(&plain), nodes(&grown), "lumps change the trim");
 }

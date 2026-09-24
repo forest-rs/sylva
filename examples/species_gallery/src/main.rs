@@ -32,7 +32,10 @@
 //! Outputs default to `.local/gallery/`, which is git-ignored and survives
 //! `cargo clean`; `target/` holds build artifacts only.
 //!
-//! `--seeds 1,3` grows only those seeds, and `--tree-only` skips the LOD
+//! `--preset FILE` grows a species preset read from a RON file instead of
+//! the built-in oak, and `--skeleton-only` writes just each seed's
+//! `skeleton.json`, the fastest loop for crown shape. `--seeds 1,3` grows
+//! only those seeds, and `--tree-only` skips the LOD
 //! chain, card bakes and glTF export, for quick crown iteration. `--welded`
 //! also meshes the bark with major forks welded, as `bark-welded.obj` with
 //! the forks in `forks.json`; `render_forks.py` compares them close up
@@ -87,6 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tree_only = false;
     let mut welded = false;
     let mut glb_only = false;
+    let mut skeleton_only = false;
+    let mut preset = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -97,10 +102,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--tree-only" => tree_only = true,
             "--welded" => welded = true,
             "--glb-only" => glb_only = true,
+            "--skeleton-only" => skeleton_only = true,
+            "--preset" => preset = Some(args.next().ok_or("--preset needs a RON file")?),
             _ => out_dir = PathBuf::from(arg),
         }
     }
-    let species: Species = ron::from_str(OAK)?;
+    let species: Species = match &preset {
+        Some(path) => ron::from_str(&std::fs::read_to_string(path)?)?,
+        None => ron::from_str(OAK)?,
+    };
+    if skeleton_only {
+        for seed in seeds {
+            let grown = species.grow(seed)?;
+            let dir = out_dir.join(format!("{}-seed{seed}", species.name));
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(dir.join("skeleton.json"), skeleton_json(&grown.skeleton)?)?;
+            println!(
+                "{}-seed{seed}: {:?} branches by level, {} sites",
+                species.name, grown.report.branches_by_level, grown.report.sites
+            );
+        }
+        return Ok(());
+    }
     let textures = write_textures(&out_dir.join("textures"), &species)?;
     for seed in seeds {
         let started = Instant::now();

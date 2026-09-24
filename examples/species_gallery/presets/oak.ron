@@ -57,8 +57,8 @@ Species(
                     curve: 0.25,
                     gnarl: 0.3,
                     gnarl_wavelength: 0.8,
-                    up: 0.02,
-                    sag: 0.09,
+                    up: 0.12,
+                    sag: 0.07,
                     kink: 0.3,
                     kink_interval: 0.45,
                     kink_jitter: 0.6,
@@ -118,6 +118,10 @@ Species(
             profile: [(0.0, 0.7), (0.2, 0.95), (0.45, 1.0), (0.75, 0.85), (1.0, 0.4)],
             from_level: 0,
             min_fraction: 0.3,
+            // Bulges and dips a few metres across, so trimmed branches end
+            // on a cloud-like surface instead of a clipped hedge.
+            lumps: 0.3,
+            lump_size: 3.5,
         )),
         // Twig tips are 4 mm; the skeleton stops at twigs, so each metre of
         // centerline also carries the flow of the unmodeled shoots on it.

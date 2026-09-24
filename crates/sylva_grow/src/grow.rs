@@ -97,7 +97,8 @@ pub fn grow(hierarchy: &Hierarchy, seed: u64) -> Result<Grown, GrowError> {
         let envelope = hierarchy
             .envelope
             .as_ref()
-            .filter(|e| level_index >= e.from_level as usize);
+            .filter(|e| level_index >= e.from_level as usize)
+            .map(|e| (e, Key::new(seed).with(tag("envelope"))));
         let mut next = Vec::new();
         for parent_id in parents {
             let parent = skeleton.branch(parent_id).expect("parents were pushed");
@@ -419,12 +420,50 @@ enum Pruned {
     Removed,
 }
 
-fn inside(envelope: Option<&Envelope>, p: Vec3) -> bool {
+/// Smooth keyed 3D value noise in `[-1, 1)` at lattice spacing 1.
+fn smooth_noise_3d(key: Key, p: Vec3) -> f32 {
+    let cell = p.floor();
+    let f = p - cell;
+    let s = f * f * (Vec3::splat(3.0) - 2.0 * f);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "crown coordinates over the lump size are small"
+    )]
+    let [x, y, z] = cell.to_array().map(|c| c as i64);
+    let corner = |dx: i64, dy: i64, dz: i64| {
+        #[expect(clippy::cast_sign_loss, reason = "a lattice coordinate as hash input")]
+        let hash = |v: i64| v as u64;
+        key.with(hash(x + dx))
+            .with(hash(y + dy))
+            .with(hash(z + dz))
+            .signed_unit_f32()
+    };
+    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+    let face = |dz| {
+        lerp(
+            lerp(corner(0, 0, dz), corner(1, 0, dz), s.x),
+            lerp(corner(0, 1, dz), corner(1, 1, dz), s.x),
+            s.y,
+        )
+    };
+    lerp(face(0), face(1), s.z)
+}
+
+fn inside(envelope: Option<(&Envelope, Key)>, p: Vec3) -> bool {
     if p.z < 0.0 {
         return false;
     }
-    let Some(e) = envelope else {
+    let Some((e, key)) = envelope else {
         return true;
+    };
+    let p = if e.lumps > 0.0 {
+        // Pull the point toward the middle where the surface bulges out, and
+        // push it away where it dips in.
+        let middle = Vec3::new(0.0, 0.0, e.base + 0.5 * e.height);
+        let bulge = 1.0 + e.lumps * smooth_noise_3d(key, p / e.lump_size);
+        middle + (p - middle) / bulge
+    } else {
+        p
     };
     let u = (p.z - e.base) / e.height;
     if !(0.0..=1.0).contains(&u) {
@@ -435,7 +474,7 @@ fn inside(envelope: Option<&Envelope>, p: Vec3) -> bool {
 
 /// Truncates `nodes` at the first node outside the envelope (or below
 /// ground). The first node is the attachment point and is never tested.
-fn prune(nodes: &mut Vec<Node>, intended: f32, envelope: Option<&Envelope>) -> Pruned {
+fn prune(nodes: &mut Vec<Node>, intended: f32, envelope: Option<(&Envelope, Key)>) -> Pruned {
     let Some(first_out) = nodes
         .iter()
         .skip(1)
@@ -444,7 +483,7 @@ fn prune(nodes: &mut Vec<Node>, intended: f32, envelope: Option<&Envelope>) -> P
     else {
         return Pruned::Kept;
     };
-    let min_fraction = envelope.map_or(0.0, |e| e.min_fraction);
+    let min_fraction = envelope.map_or(0.0, |(e, _)| e.min_fraction);
     if first_out < 2 {
         return Pruned::Removed;
     }

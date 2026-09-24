@@ -147,6 +147,12 @@ pub(crate) fn check(h: &Hierarchy) -> Result<(), GrowError> {
         if !(0.0..=1.0).contains(&e.min_fraction) {
             return Err(invalid(None, "envelope.min_fraction"));
         }
+        if !(0.0..1.0).contains(&e.lumps) {
+            return Err(invalid(None, "envelope.lumps"));
+        }
+        if !positive(e.lump_size) {
+            return Err(invalid(None, "envelope.lump_size"));
+        }
     }
     Ok(())
 }
