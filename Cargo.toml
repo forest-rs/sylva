@@ -7,6 +7,7 @@ members = [
     "crates/sylva_gltf",
     "crates/sylva_grow",
     "crates/sylva_lod",
+    "crates/sylva_measure",
     "crates/sylva_mesh",
     "crates/sylva_skeleton",
     "crates/sylva_species",
@@ -106,6 +107,7 @@ sylva_foliage = { path = "crates/sylva_foliage", version = "0.0.1" }
 sylva_gltf = { path = "crates/sylva_gltf", version = "0.0.1" }
 sylva_grow = { path = "crates/sylva_grow", version = "0.0.1" }
 sylva_lod = { path = "crates/sylva_lod", version = "0.0.1" }
+sylva_measure = { path = "crates/sylva_measure", version = "0.0.1" }
 sylva_mesh = { path = "crates/sylva_mesh", version = "0.0.1" }
 sylva_skeleton = { path = "crates/sylva_skeleton", version = "0.0.1" }
 sylva_species = { path = "crates/sylva_species", version = "0.0.1" }

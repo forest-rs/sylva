@@ -1,0 +1,23 @@
+[package]
+name = "sylva_measure"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Measured realism for sylva trees: allometry and crown statistics against reference ranges"
+keywords = ["procedural", "tree", "vegetation", "no_std"]
+categories = ["graphics", "game-development", "no-std"]
+publish = false
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+dapple_lab.workspace = true
+libm.workspace = true
+serde = { optional = true, workspace = true }
+sylva_skeleton.workspace = true
+
+[lints]
+workspace = true
