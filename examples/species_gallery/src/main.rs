@@ -131,12 +131,17 @@ pub(crate) enum Bark<S> {
 pub(crate) struct BarkModule {
     /// The module: `beech`, `birch`, `scots_pine` or `spruce`.
     module: String,
-    /// The stem's circumference, metres.
+    /// The stem's circumference, metres, for the species' own bark set
+    /// (cluster card bakes and trees without stages).
     girth: f32,
-    /// The tile's height on the trunk, metres.
+    /// The tile's height on the trunk, metres, for that set.
     height: f32,
     /// Texels a side of the one-metre tile.
     size: u32,
+    /// Heights on the trunk, metres, ascending, at which each tree bakes a
+    /// bark stage at its own girth there; empty for one bark per species.
+    #[serde(default)]
+    stages: Vec<f32>,
 }
 
 impl Bark<String> {
@@ -151,6 +156,105 @@ impl Bark<String> {
             }
         })
     }
+}
+
+/// The breast height where a stem's bark stands in for the whole stem in
+/// viewers that do not blend stages.
+const BREAST_HEIGHT: f32 = 1.3;
+
+/// Bakes `skeleton`'s bark stages, if its preset lists any, into
+/// `<dir>/bark-stages/`: `stage<k>/gltf` and `stage<k>/lightweald` per
+/// stage, lowest first, and `stages.json` with each stage's height and
+/// girth. Girths are the root stem's own at each height. Renderers blend
+/// the stages by height as `sylva_texture::bark_stage_blend` defines; the
+/// GLB binds the stage nearest breast height. Returns that stage's glTF
+/// directory.
+fn write_bark_stages(
+    dir: &std::path::Path,
+    preset: &Preset,
+    skeleton: &sylva_skeleton::Skeleton,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    let Bark::Module(source) = &preset.bark else {
+        return Ok(None);
+    };
+    let spec: BarkModule = ron::from_str(source)?;
+    if spec.stages.is_empty() {
+        return Ok(None);
+    }
+    let trunk = skeleton
+        .branches()
+        .iter()
+        .find(|b| b.parent.is_none())
+        .ok_or("a tree has a root stem")?;
+    let top = trunk.nodes[trunk.nodes.len() - 1].position.z;
+    let radius_at = |z: f32| {
+        trunk
+            .nodes
+            .windows(2)
+            .find(|w| w[0].position.z <= z && z <= w[1].position.z)
+            .map_or(trunk.nodes[trunk.nodes.len() - 1].radius, |w| {
+                let f = (z - w[0].position.z) / (w[1].position.z - w[0].position.z).max(1e-6);
+                w[0].radius + (w[1].radius - w[0].radius) * f
+            })
+    };
+    let stages: Vec<sylva_texture::BarkStage> = spec
+        .stages
+        .iter()
+        .filter(|&&h| h < top)
+        .map(|&height| sylva_texture::BarkStage {
+            height,
+            girth: core::f32::consts::TAU * radius_at(height),
+        })
+        .collect();
+    let module = bark_module_named(&spec.module)?;
+    let sets = sylva_texture::bark_stages(module.as_ref(), &stages, spec.size)?;
+    let out = dir.join("bark-stages");
+    for (k, set) in sets.iter().enumerate() {
+        for (profile, label) in [(Profile::Lightweald, "lightweald"), (Profile::Gltf, "gltf")] {
+            let bundle = pack(
+                &set.maps,
+                profile,
+                &PackSettings {
+                    filter: Filter::Kaiser,
+                    ..PackSettings::default()
+                },
+            )?;
+            let stage_dir = out.join(format!("stage{k}")).join(label);
+            std::fs::create_dir_all(&stage_dir)?;
+            for texture in &bundle.textures {
+                std::fs::write(
+                    stage_dir.join(format!("{}.png", texture.name)),
+                    dapple_encode::png::write(texture)?,
+                )?;
+                if profile == Profile::Lightweald {
+                    std::fs::write(
+                        stage_dir.join(format!("{}.ktx2", texture.name)),
+                        ktx2::write(texture),
+                    )?;
+                }
+            }
+        }
+    }
+    let list = |f: fn(&sylva_texture::BarkStage) -> f32| {
+        stages
+            .iter()
+            .map(|s| f(s).to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    std::fs::write(
+        out.join("stages.json"),
+        format!(
+            "{{\"module\":\"{}\",\"heights\":[{}],\"girths\":[{}]}}\n",
+            spec.module,
+            list(|s| s.height),
+            list(|s| s.girth)
+        ),
+    )?;
+    let heights: Vec<f32> = stages.iter().map(|s| s.height).collect();
+    let (lo, hi, t) = sylva_texture::bark_stage_blend(&heights, BREAST_HEIGHT);
+    let nearest = if t < 0.5 { lo } else { hi };
+    Ok(Some(out.join(format!("stage{nearest}/gltf"))))
 }
 
 /// Dapple's bark module called `name`.
@@ -185,7 +289,7 @@ const PRESETS: [Sources; 4] = [
     ),
     (
         include_str!("../presets/spruce.ron"),
-        Bark::Recipe(include_str!("../presets/spruce_bark.toml")),
+        Bark::Module(include_str!("../presets/spruce_bark.ron")),
         Some(include_str!("../presets/spruce_leaf.ron")),
         Some(include_str!("../presets/spruce_lod.ron")),
     ),
@@ -435,6 +539,11 @@ fn grow_species(
                 } else {
                     Export::None
                 };
+                let bark_stage = if export == Export::None {
+                    None
+                } else {
+                    write_bark_stages(&dir, preset, &grown.skeleton)?
+                };
                 let lods = write_lods(
                     &dir,
                     export,
@@ -443,6 +552,7 @@ fn grow_species(
                     &tri,
                     &textures,
                     &lod,
+                    bark_stage.as_deref(),
                 )?;
                 if glb_only {
                     let r = &grown.report;
@@ -673,6 +783,7 @@ fn write_lods(
     bark: &TriMesh,
     textures: &card::Textures,
     spec: &lod_spec::LodSpec,
+    bark_stage: Option<&std::path::Path>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let started = Instant::now();
     let chain = build_lods(skeleton, foliage, &MeshParams::default(), &spec.policy())?;
@@ -815,7 +926,7 @@ fn write_lods(
     let bytes = if export == Export::None {
         Vec::new()
     } else {
-        write_glbs(dir, skeleton, foliage, &chain)?
+        write_glbs(dir, skeleton, foliage, &chain, bark_stage)?
     };
     // Each level against its budget: triangles drawn (instances counted)
     // and the bytes of its smallest GLB.
@@ -853,13 +964,15 @@ fn write_lods(
 /// Builds the tree asset and writes each level, the impostor last, as
 /// `glb/lod<n>.glb` (and `glb/lod<n>-instanced.glb` for levels with
 /// individual leaves or cluster cards), with the species' texture sets and
-/// the baked atlases already written beside it. Returns each level's
-/// smallest GLB size in bytes.
+/// the baked atlases already written beside it; bark binds `bark_stage`, the
+/// tree's own breast-height bark stage, when it has one. Returns each
+/// level's smallest GLB size in bytes.
 fn write_glbs(
     dir: &std::path::Path,
     skeleton: &sylva_skeleton::Skeleton,
     foliage: &Foliage,
     chain: &sylva_lod::LodChain,
+    bark_stage: Option<&std::path::Path>,
 ) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
     let asset = build_asset(skeleton, foliage, chain, &TreeMaterials::default())?;
     let species = dir
@@ -873,7 +986,10 @@ fn write_glbs(
         .materials
         .iter()
         .map(|m| match m.role {
-            MaterialRole::Bark => textures_dir.join(format!("{species}-bark/gltf")),
+            MaterialRole::Bark => bark_stage.map_or_else(
+                || textures_dir.join(format!("{species}-bark/gltf")),
+                std::path::Path::to_path_buf,
+            ),
             MaterialRole::Leaf => textures_dir.join(format!("{species}-leaf/gltf")),
             MaterialRole::Cards { level } => dir.join(format!("lods/lod{level}-cards")),
             MaterialRole::Impostor => dir.join("lods/impostor"),

@@ -1,4 +1,5 @@
-// Dapple's calibrated silver birch bark: white with dark lenticels, at
-// the stem's girth, above the dark, fissured base (one bark set covers the
-// whole stem; bark that changes up the stem is not modelled yet).
-(module: "birch", girth: 1.1, height: 3.0, size: 1024)
+// Dapple's calibrated silver birch bark. Each tree bakes it at these heights
+// on its trunk, at its own girth there: dark and fissured at the base,
+// white from a few metres up; renderers blend the stages up the stem. The
+// girth and height below give the species' own set for card bakes.
+(module: "birch", girth: 1.1, height: 6.0, size: 1024, stages: [0.3, 1.3, 3.0, 6.0, 10.0])

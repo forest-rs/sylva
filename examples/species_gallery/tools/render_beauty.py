@@ -146,6 +146,71 @@ def fix_materials(objs, done, species):
             links.new(cut.outputs["Shader"], out.inputs["Surface"])
 
 
+def stage_bark(meshes, species, seed):
+    """Rebuild the tree's bark to blend its bark stages by height, when it
+    has them (`bark-stages/stages.json`): between the two stages bracketing
+    each point's height, linearly, as `sylva_texture::bark_stage_blend`
+    defines; the nearest stage holds alone below the first and above the
+    last. Colour, normals and roughness blend alike."""
+    import json
+    stages_dir = GEN / f"{species}-seed{seed}/bark-stages"
+    if not (stages_dir / "stages.json").exists():
+        return
+    heights = json.loads((stages_dir / "stages.json").read_text())["heights"]
+    m = bpy.data.materials.new(f"bark-staged-{species}-{seed}")
+    m.use_nodes = True
+    nt = m.node_tree
+    n, l = nt.nodes, nt.links
+    bsdf = n["Principled BSDF"]
+    bsdf.inputs["Specular IOR Level"].default_value = 0.35
+    coord = n.new("ShaderNodeTexCoord")
+    xyz = n.new("ShaderNodeSeparateXYZ")
+    l.new(coord.outputs["Object"], xyz.inputs["Vector"])
+    # The importer keeps exedra's Z-up to Y-up turn on a parent node, so
+    # a mesh's own coordinates have sylva's height along -Y.
+    height = n.new("ShaderNodeMath")
+    height.operation = "MULTIPLY"
+    height.inputs[1].default_value = -1.0
+    l.new(xyz.outputs["Y"], height.inputs[0])
+    uv = n.new("ShaderNodeUVMap")
+
+    def tex(k, name, non_color):
+        t = n.new("ShaderNodeTexImage")
+        t.image = bpy.data.images.load(str(stages_dir / f"stage{k}/gltf/{name}.png"), check_existing=True)
+        if non_color:
+            t.image.colorspace_settings.name = "Non-Color"
+        l.new(uv.outputs["UV"], t.inputs["Vector"])
+        return t.outputs["Color"]
+
+    def blend(name, non_color):
+        out = tex(0, name, non_color)
+        for k in range(1, len(heights)):
+            w = n.new("ShaderNodeMapRange")
+            w.clamp = True
+            w.inputs["From Min"].default_value = heights[k - 1]
+            w.inputs["From Max"].default_value = heights[k]
+            l.new(height.outputs["Value"], w.inputs["Value"])
+            mix = n.new("ShaderNodeMix")
+            mix.data_type = "RGBA"
+            l.new(w.outputs["Result"], mix.inputs["Factor"])
+            l.new(out, mix.inputs["A"])
+            l.new(tex(k, name, non_color), mix.inputs["B"])
+            out = mix.outputs["Result"]
+        return out
+
+    l.new(blend("base_color", False), bsdf.inputs["Base Color"])
+    orm = n.new("ShaderNodeSeparateColor")
+    l.new(blend("orm", True), orm.inputs["Color"])
+    l.new(orm.outputs["Green"], bsdf.inputs["Roughness"])
+    normal = n.new("ShaderNodeNormalMap")
+    l.new(blend("normal", True), normal.inputs["Color"])
+    l.new(normal.outputs["Normal"], bsdf.inputs["Normal"])
+    for o in meshes:
+        for slot in o.material_slots:
+            if slot.material is not None and slot.material.name.startswith("bark"):
+                slot.material = m
+
+
 def import_tree(seed, loc=(0, 0, 0), rot=0.0, scale=1.0, done=None, species=None):
     species = species or ARGS.species
     path = GEN / f"{species}-seed{seed}/glb/lod0.glb"
@@ -161,6 +226,7 @@ def import_tree(seed, loc=(0, 0, 0), rot=0.0, scale=1.0, done=None, species=None
     root.rotation_euler = (0, 0, rot)
     root.scale = (scale,) * 3
     fix_materials([o for o in new if o.type == "MESH"], done if done is not None else set(), species)
+    stage_bark([o for o in new if o.type == "MESH"], species, seed)
     bpy.context.view_layer.update()
     meshes = [o for o in new if o.type == "MESH"]
     return root, meshes

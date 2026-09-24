@@ -7,6 +7,7 @@
 // - "pretzsch2015": Pretzsch et al. 2015, open-grown trees;
 // - "hemery2005": Hemery, Savill & Pryor 2005, trees sampled largely in
 //   woodland and plantations, of stand-grown form;
+// - "dapple": dapple's bark calibration (measured stem bark reflectance);
 // - "sylva": a target of sylva's own where no source gives a number,
 //   usually a band read from the other ranges or a review target.
 (
@@ -31,8 +32,10 @@
         (name: "form.branch_angle.order1.mean", lo: 40.0, hi: 85.0, source: "sylva"),
         // An oak crown is gappy: its limbs show against the sky.
         (name: "crown.sky_fraction", lo: 0.08, hi: 0.4, source: "sylva"),
-        // Mid-summer upper-leaf albedo, sRGB green channel, and bark.
+        // Mid-summer upper-leaf albedo, sRGB green channel.
         (name: "colour.leaf.srgb_green", lo: 55.0, hi: 85.0, source: "sylva"),
-        (name: "colour.bark.srgb_luma", lo: 35.0, hi: 95.0, source: "sylva"),
+        // Measured stem barks span Y 0.07 to 0.25 (sRGB luma about 75 to
+        // 137), the plausible range of dapple's bark calibration.
+        (name: "colour.bark.srgb_luma", lo: 75.0, hi: 137.0, source: "dapple"),
     ],
 )

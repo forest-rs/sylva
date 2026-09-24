@@ -5,6 +5,7 @@
 // sylva_measure's docs):
 //
 // - "kantola2004": Kantola & Mäkelä 2004, stand-grown trees;
+// - "dapple": dapple's bark calibration (measured stem bark reflectance);
 // - "sylva": a target of sylva's own where no source gives a number. The
 //   open-grown ranges extrapolate the stand data toward open growth: a
 //   lower, fuller crown and a stouter stem.
@@ -28,6 +29,8 @@
         // A dense spruce crown shows little sky.
         (name: "crown.sky_fraction", lo: 0.02, hi: 0.25, source: "sylva"),
         (name: "colour.leaf.srgb_green", lo: 30.0, hi: 70.0, source: "sylva"),
-        (name: "colour.bark.srgb_luma", lo: 35.0, hi: 95.0, source: "sylva"),
+        // Measured stem barks span Y 0.07 to 0.25 (sRGB luma about 75 to
+        // 137), the plausible range of dapple's bark calibration.
+        (name: "colour.bark.srgb_luma", lo: 75.0, hi: 137.0, source: "dapple"),
     ],
 )

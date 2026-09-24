@@ -55,20 +55,21 @@ Species(
                 length_jitter: 0.3,
                 shape: (gnarl: 0.2, gnarl_wavelength: 0.8, sag: 0.9),
             ),
-            // Fine pendulous twigs, hanging straight down.
+            // Fine pendulous twigs, long and few, hanging straight down in
+            // curtains of leaves.
             (
-                count: PerMetre(9.0),
+                count: PerMetre(4.2),
                 span: (0.2, 1.0),
                 arrangement: Spiral(divergence: 2.39996),
                 roll_jitter: 0.5,
                 position_jitter: 0.7,
                 angle: [(0.0, 0.7), (1.0, 0.5)],
                 angle_jitter: 0.3,
-                length: [(0.0, 0.6), (1.0, 0.35)],
+                length: [(0.0, 1.1), (1.0, 0.7)],
                 length_jitter: 0.3,
-                shape: (gnarl: 0.1, gnarl_wavelength: 0.3, sag: 5.0),
+                shape: (gnarl: 0.08, gnarl_wavelength: 0.3, sag: 7.0),
                 sites: Some((
-                    per_metre: 9.0,
+                    per_metre: 11.0,
                     span: (0.1, 1.0),
                     kind: 0,
                     angle: 0.9,
@@ -111,8 +112,8 @@ Species(
         ),
         variants: 4,
         variation: (size: 0.2, width: 0.1, lobe_depth: 0.3),
-        droop: 0.5,
-        light: 0.4,
+        droop: 0.8,
+        light: 0.25,
         roll_jitter: 0.8,
         seed: 7,
     )),
