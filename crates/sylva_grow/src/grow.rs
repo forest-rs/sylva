@@ -147,6 +147,7 @@ pub fn grow(hierarchy: &Hierarchy, seed: u64) -> Result<Grown, GrowError> {
             tip_radius: hierarchy.radii.tip_radius,
             exponent: hierarchy.radii.exponent,
             shoots_per_metre: hierarchy.radii.shoots_per_metre,
+            bole_taper: hierarchy.radii.bole_taper,
         },
     )?;
     report.frames = compute_frames(&mut skeleton, &FrameParams::default());

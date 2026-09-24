@@ -76,6 +76,7 @@ fn tree() -> (Skeleton, Foliage) {
             tip_radius: 0.004,
             exponent: 2.3,
             shoots_per_metre: 20.0,
+            bole_taper: 0.0,
         },
     )
     .expect("radii");

@@ -279,6 +279,10 @@ pub struct Radii {
     /// Unmodeled shoots per metre of centerline, each carrying a tip's flow
     /// (see `sylva_skeleton::passes::PipeModel::shoots_per_metre`).
     pub shoots_per_metre: f32,
+    /// Relative radius growth per metre below a branch's lowest child, so
+    /// a bare bole tapers instead of standing as a column (see
+    /// `sylva_skeleton::passes::PipeModel::bole_taper`).
+    pub bole_taper: f32,
 }
 
 impl Default for Radii {
@@ -287,6 +291,7 @@ impl Default for Radii {
             tip_radius: 0.004,
             exponent: 2.3,
             shoots_per_metre: 0.0,
+            bole_taper: 0.0,
         }
     }
 }

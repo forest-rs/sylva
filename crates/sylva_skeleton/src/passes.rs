@@ -115,6 +115,17 @@ pub struct PipeModel {
     /// taper even without modeled children, and trunks keep their girth.
     /// Zero is the classic tip-only model.
     pub shoots_per_metre: f32,
+    /// Relative radius growth per metre below a branch's lowest child.
+    ///
+    /// The pipe model carries no new flow below the last fork, so a bare
+    /// bole comes out as a constant-radius column. Real stems keep
+    /// thickening toward the ground, because the bending load of the crown
+    /// grows with lever arm. A node `d` metres below the branch's lowest
+    /// child has its radius scaled by `1 + bole_taper * d`, and the tapered
+    /// base feeds the parent's flow, so parents stay at least as thick as
+    /// their children. Branches without children are unaffected. Zero
+    /// disables it.
+    pub bole_taper: f32,
 }
 
 impl Default for PipeModel {
@@ -123,6 +134,7 @@ impl Default for PipeModel {
             tip_radius: 0.004,
             exponent: 2.3,
             shoots_per_metre: 0.0,
+            bole_taper: 0.0,
         }
     }
 }
@@ -144,8 +156,10 @@ pub struct PipeReport {
 /// base, a node carries the tip's flow, the flow of the unmodeled shoots along
 /// the centerline between it and the tip ([`PipeModel::shoots_per_metre`]),
 /// and the base flow of every child attached at or beyond it
-/// (`child.t >= node.t`); its radius is that flow to the power `1/e`. A branch's base radius is therefore the combined size of
-/// everything it supports, which is what makes forks read correctly.
+/// (`child.t >= node.t`); its radius is that flow to the power `1/e`, scaled
+/// below the lowest child by [`PipeModel::bole_taper`]. A branch's base
+/// radius is therefore the combined size of everything it supports, which is
+/// what makes forks read correctly.
 ///
 /// Branches are processed in reverse storage order, so children are sized
 /// before their parents. Existing radii are overwritten.
@@ -153,8 +167,8 @@ pub struct PipeReport {
 /// # Errors
 ///
 /// [`SkeletonError::InvalidParameter`] when `tip_radius` is not positive and
-/// finite or `exponent` is not at least 1 and finite; the skeleton is
-/// unchanged.
+/// finite, `exponent` is not at least 1 and finite, or `shoots_per_metre` or
+/// `bole_taper` is negative or not finite; the skeleton is unchanged.
 pub fn pipe_model_radii(
     skeleton: &mut Skeleton,
     params: &PipeModel,
@@ -169,6 +183,9 @@ pub fn pipe_model_radii(
         return Err(SkeletonError::InvalidParameter {
             name: "shoots_per_metre",
         });
+    }
+    if !(params.bole_taper.is_finite() && params.bole_taper >= 0.0) {
+        return Err(SkeletonError::InvalidParameter { name: "bole_taper" });
     }
     let shoot_flow = libm::powf(params.tip_radius, params.exponent) * params.shoots_per_metre;
     let e = params.exponent;
@@ -196,8 +213,11 @@ pub fn pipe_model_radii(
         let branch = &mut skeleton.branches_mut()[index];
         let lengths = branch.arc_lengths();
         let total = *lengths.last().expect("branches have nodes");
+        // Arc length of the lowest child; below it the bole tapers.
+        let lowest = children.last().map_or(f32::NEG_INFINITY, |c| c.0 * total);
         let mut flow = tip_flow;
         let mut next_child = 0;
+        let mut radius = 0.0;
         for (node_index, node) in branch.nodes.iter_mut().enumerate().rev() {
             let t = if total > 0.0 {
                 lengths[node_index] / total
@@ -209,10 +229,14 @@ pub fn pipe_model_radii(
                 next_child += 1;
             }
             let shoots = shoot_flow * (total - lengths[node_index]);
-            node.radius = libm::powf(flow + shoots, 1.0 / e);
-            report.max_radius = report.max_radius.max(node.radius);
+            let below = (lowest - lengths[node_index]).max(0.0);
+            radius = libm::powf(flow + shoots, 1.0 / e) * (1.0 + params.bole_taper * below);
+            node.radius = radius;
+            report.max_radius = report.max_radius.max(radius);
         }
-        base_flow[index] = flow + shoot_flow * total;
+        // The base node sits at arc length zero, so its radius already
+        // carries every shoot and the full taper.
+        base_flow[index] = libm::powf(radius, e);
         report.branches += 1;
         report.nodes += branch.nodes.len();
     }
@@ -271,6 +295,7 @@ mod tests {
             tip_radius: 0.01,
             exponent: 2.0,
             shoots_per_metre: 0.0,
+            bole_taper: 0.0,
         };
         let report = pipe_model_radii(&mut skeleton, &params).expect("radii");
         assert_eq!(report.branches, 4);
@@ -299,6 +324,7 @@ mod tests {
                     tip_radius: 0.0,
                     exponent: 2.0,
                     shoots_per_metre: 0.0,
+                    bole_taper: 0.0,
                 },
                 "tip_radius",
             ),
@@ -307,6 +333,7 @@ mod tests {
                     tip_radius: 0.01,
                     exponent: 0.5,
                     shoots_per_metre: 0.0,
+                    bole_taper: 0.0,
                 },
                 "exponent",
             ),
@@ -486,6 +513,7 @@ mod tests {
             tip_radius: 0.01,
             exponent: 2.0,
             shoots_per_metre: 3.0,
+            bole_taper: 0.0,
         };
         pipe_model_radii(&mut skeleton, &params).expect("radii");
         let radii: Vec<f32> = skeleton.branches()[0]
@@ -520,6 +548,46 @@ mod tests {
             Err(SkeletonError::InvalidParameter {
                 name: "shoots_per_metre"
             })
+        );
+    }
+
+    #[test]
+    fn bole_taper_thickens_the_stem_below_its_lowest_child() {
+        let mut plain = fork();
+        let params = PipeModel {
+            tip_radius: 0.01,
+            exponent: 2.0,
+            shoots_per_metre: 0.0,
+            bole_taper: 0.5,
+        };
+        pipe_model_radii(
+            &mut plain,
+            &PipeModel {
+                bole_taper: 0.0,
+                ..params
+            },
+        )
+        .expect("radii");
+        let mut tapered = fork();
+        pipe_model_radii(&mut tapered, &params).expect("radii");
+        let (plain, tapered) = (&plain.branches()[0], &tapered.branches()[0]);
+        // The lowest children sit at t = 0.5, one metre up: nodes 2..=4 are
+        // unchanged, node 1 is half a metre below, node 0 a whole metre.
+        for i in 2..5 {
+            assert!((tapered.nodes[i].radius - plain.nodes[i].radius).abs() < 1e-7);
+        }
+        assert!((tapered.nodes[1].radius - plain.nodes[1].radius * 1.25).abs() < 1e-6);
+        assert!((tapered.nodes[0].radius - plain.nodes[0].radius * 1.5).abs() < 1e-6);
+        let err = pipe_model_radii(
+            &mut fork(),
+            &PipeModel {
+                bole_taper: -0.1,
+                ..params
+            },
+        );
+        assert_eq!(
+            err,
+            Err(SkeletonError::InvalidParameter { name: "bole_taper" })
         );
     }
 }

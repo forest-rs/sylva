@@ -347,6 +347,7 @@ fn segment_counts_follow_the_taper_without_cracks() {
             tip_radius: 0.01,
             exponent: 2.0,
             shoots_per_metre: 40.0,
+            bole_taper: 0.0,
         },
     )
     .expect("radii");
