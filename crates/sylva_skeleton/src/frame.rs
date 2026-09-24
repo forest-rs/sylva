@@ -52,12 +52,20 @@ impl Frame {
     /// Builds a frame around `tangent` whose normal is `reference` made
     /// perpendicular to it.
     ///
-    /// Returns `None` when `tangent` is degenerate or `reference` is parallel
-    /// to it; callers choose their own fallback and count it.
+    /// Returns `None` when `tangent` is degenerate or `reference` is
+    /// parallel to it, or so nearly parallel (within about 0.06 degrees)
+    /// that the perpendicular part is mostly rounding error; callers choose
+    /// their own fallback and count it. The normal is projected twice, so
+    /// it is perpendicular to working precision.
     #[must_use]
     pub fn from_tangent(tangent: Vec3, reference: Vec3) -> Option<Self> {
         let tangent = tangent.try_normalize()?;
-        let normal = (reference - tangent * reference.dot(tangent)).try_normalize()?;
+        let perpendicular = reference - tangent * reference.dot(tangent);
+        if perpendicular.length() <= 1e-3 * reference.length() {
+            return None;
+        }
+        let normal = perpendicular.try_normalize()?;
+        let normal = (normal - tangent * normal.dot(tangent)).try_normalize()?;
         Some(Self { tangent, normal })
     }
 
@@ -151,5 +159,26 @@ mod tests {
         assert!(fell_back);
         assert!(frame.is_orthonormal(FRAME_EPSILON));
         assert!(Frame::from_tangent_or_axis(Vec3::ZERO, Vec3::X).is_none());
+    }
+
+    #[test]
+    fn nearly_parallel_references_fall_back_or_stay_orthonormal() {
+        let tangent = Vec3::new(0.3, -0.2, 0.93).normalize();
+        // A reference a hair off the tangent: its perpendicular part is
+        // rounding error, so it cannot orient a frame.
+        let hair = (tangent + Vec3::new(1e-5, -2e-5, 0.0)).normalize();
+        assert!(Frame::from_tangent(tangent, hair).is_none());
+        let (frame, fell_back) = Frame::from_tangent_or_axis(tangent, hair).expect("frame");
+        assert!(fell_back);
+        assert!(frame.is_orthonormal(1e-6));
+        // Slightly further off, the reference is used and the frame is
+        // orthonormal to working precision.
+        for k in 1..200 {
+            let off = 1e-3 * k as f32;
+            let reference = (tangent + Vec3::new(off, 0.5 * off, -off)).normalize();
+            if let Some(frame) = Frame::from_tangent(tangent, reference) {
+                assert!(frame.is_orthonormal(1e-6), "off {off}: {frame:?}");
+            }
+        }
     }
 }
