@@ -709,6 +709,8 @@ dependencies = [
  "dapple_encode",
  "dapple_graph",
  "dapple_lab",
+ "dapple_library",
+ "dapple_material",
  "exedra_mesh",
  "png",
  "ron",
