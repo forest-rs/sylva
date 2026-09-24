@@ -104,7 +104,25 @@ pub fn grow(hierarchy: &Hierarchy, seed: u64) -> Result<Grown, GrowError> {
             let parent = skeleton.branch(parent_id).expect("parents were pushed");
             let (mut children, skipped) = place_children(parent, level, lineage, seed);
             if level.balance > 0.0 {
-                balance(&mut children, level.balance);
+                // Balance by where each child actually reaches, since its
+                // shape (gnarl, kinks, curves) can carry it far from the
+                // direction it leaves in.
+                let reach: Vec<Vec3> = children
+                    .iter()
+                    .map(|c| {
+                        let nodes = centerline(
+                            c.start,
+                            c.direction,
+                            c.length,
+                            &level.shape,
+                            c.id.key(seed),
+                            step,
+                        );
+                        let d = nodes[nodes.len() - 1].position - c.start;
+                        Vec3::new(d.x, d.y, 0.0)
+                    })
+                    .collect();
+                balance(&mut children, &reach, level.balance);
             }
             report.skipped += skipped;
             let parent_order = parent.order;
@@ -158,17 +176,16 @@ pub fn grow(hierarchy: &Hierarchy, seed: u64) -> Result<Grown, GrowError> {
     Ok(Grown { skeleton, report })
 }
 
-/// Rebalances sibling lengths against their combined horizontal lean.
+/// Rebalances sibling lengths against their combined horizontal reach.
 ///
-/// Each child's horizontal reach is its direction's horizontal part times its
-/// length. With `f` the net reach over the total reach and `b` the net
-/// direction, a child whose reach points along `b` by `cos` is scaled by
+/// `reach` holds each child's horizontal reach at its intended length. With
+/// `f` the net reach over the total reach and `b` the net direction, a child
+/// whose reach points along `b` by `cos` is scaled by
 /// `1 - strength * f * cos`, so the heavy side shortens and the light side
 /// lengthens. IDs and every keyed decision are untouched.
-fn balance(children: &mut [Placement], strength: f32) {
-    let reach = |c: &Placement| Vec3::new(c.direction.x, c.direction.y, 0.0) * c.length;
-    let net: Vec3 = children.iter().map(reach).sum();
-    let total: f32 = children.iter().map(|c| reach(c).length()).sum();
+fn balance(children: &mut [Placement], reach: &[Vec3], strength: f32) {
+    let net: Vec3 = reach.iter().sum();
+    let total: f32 = reach.iter().map(|r| r.length()).sum();
     let Some(towards) = net.try_normalize() else {
         return;
     };
@@ -176,8 +193,8 @@ fn balance(children: &mut [Placement], strength: f32) {
         return;
     }
     let imbalance = net.length() / total;
-    for child in children {
-        let along = reach(child).try_normalize().map_or(0.0, |r| r.dot(towards));
+    for (child, r) in children.iter_mut().zip(reach) {
+        let along = r.try_normalize().map_or(0.0, |r| r.dot(towards));
         child.length *= (1.0 - strength * imbalance * along).max(0.25);
     }
 }

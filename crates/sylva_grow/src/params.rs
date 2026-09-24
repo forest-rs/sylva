@@ -131,9 +131,10 @@ pub struct Level {
     /// Keyed length variation as a fraction (`0.2` is ±20%).
     pub length_jitter: f32,
     /// Crown balance among siblings, in `[0, 1]`. Jittered lengths and
-    /// azimuths can leave a crown lopsided; this shortens the children of
-    /// one parent that reach toward their combined horizontal lean and
-    /// lengthens those opposite, in proportion to the imbalance. It matters
+    /// azimuths, and shapes that wander, can leave a crown lopsided; this
+    /// shortens the children of one parent whose grown tips reach toward
+    /// their combined horizontal lean and lengthens those opposite, in
+    /// proportion to the imbalance. It matters
     /// most for scaffold limbs on the trunk. 0 leaves lengths unchanged.
     pub balance: f32,
     /// Centerline shaping of these children.
