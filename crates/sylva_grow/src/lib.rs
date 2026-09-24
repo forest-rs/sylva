@@ -40,6 +40,7 @@
 //!         ..Level::default()
 //!     }],
 //!     envelope: None,
+//!     shade: None,
 //!     radii: Radii::default(),
 //!     segment_length: 0.5,
 //! };
@@ -62,8 +63,8 @@ pub use curve::{Curve, CurveError};
 pub use error::GrowError;
 pub use grow::{GrowReport, Grown, grow};
 pub use params::{
-    Arrangement, Count, DEFAULT_LUMP_SIZE, Envelope, GOLDEN_ANGLE, Hierarchy, Level, Radii, Shape,
-    Sites, Trunk,
+    Arrangement, Count, DEFAULT_LUMP_SIZE, Envelope, GOLDEN_ANGLE, Hierarchy, Level, Radii, Shade,
+    Shape, Sites, Trunk,
 };
 
 #[cfg(test)]

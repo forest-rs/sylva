@@ -24,6 +24,7 @@
 //!         trunk: Trunk::default(),
 //!         levels: vec![],
 //!         envelope: None,
+//!         shade: None,
 //!         radii: Radii::default(),
 //!         segment_length: 0.5,
 //!     }),

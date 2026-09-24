@@ -72,6 +72,7 @@ fn fixture() -> Hierarchy {
             },
         ],
         envelope: None,
+        shade: None,
         radii: Radii::default(),
         segment_length: 0.4,
     }
@@ -270,6 +271,7 @@ fn kinks_zig_zag_at_every_internode() {
         },
         levels: Vec::new(),
         envelope: None,
+        shade: None,
         radii: Radii::default(),
         segment_length: 0.5,
     };
@@ -351,6 +353,7 @@ fn kinks_zig_zag_around_the_trend_without_steering_it() {
         },
         levels: Vec::new(),
         envelope: None,
+        shade: None,
         radii: Radii::default(),
         segment_length: 0.5,
     };
@@ -469,4 +472,56 @@ fn trunk_sites_clothe_the_leader_top() {
         .collect();
     assert!(on_trunk.len() >= 4, "{} trunk sites", on_trunk.len());
     assert!(on_trunk.iter().all(|s| s.t >= 0.75), "sites on the top");
+}
+
+#[test]
+fn shade_bares_inner_branches_and_keeps_the_shell() {
+    let mut h = fixture();
+    let open = grow(&h, 5).expect("grow");
+    h.shade = Some(crate::Shade {
+        shell: 0.25,
+        interior: 0.0,
+    });
+    let shaded = grow(&h, 5).expect("grow");
+    assert!(
+        shaded.report.sites < open.report.sites,
+        "{} of {} sites",
+        shaded.report.sites,
+        open.report.sites
+    );
+    // Sites that survive are the same sites, and none are new.
+    let key = |s: &sylva_skeleton::Site| (s.branch, s.ordinal);
+    let before: Vec<_> = open.skeleton.sites().iter().map(key).collect();
+    assert!(
+        shaded
+            .skeleton
+            .sites()
+            .iter()
+            .all(|s| before.contains(&key(s)))
+    );
+    // The branches reaching farthest keep their foliage.
+    let far = open
+        .skeleton
+        .sites()
+        .iter()
+        .max_by(|a, b| {
+            let r = |s: &sylva_skeleton::Site| {
+                let p = open
+                    .skeleton
+                    .branch(s.branch)
+                    .expect("branch")
+                    .sample(s.t)
+                    .position;
+                Vec3::new(p.x, p.y, 0.0).length()
+            };
+            r(a).total_cmp(&r(b))
+        })
+        .expect("sites");
+    assert!(
+        shaded
+            .skeleton
+            .sites()
+            .iter()
+            .any(|s| s.branch == far.branch)
+    );
 }

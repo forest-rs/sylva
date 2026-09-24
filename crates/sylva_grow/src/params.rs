@@ -22,6 +22,9 @@ pub struct Hierarchy {
     pub levels: Vec<Level>,
     /// Optional crown envelope that prunes branches growing out of it.
     pub envelope: Option<Envelope>,
+    /// Optional self-shading that thins foliage inside the crown.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shade: Option<Shade>,
     /// Pipe-model radii applied after growth.
     pub radii: Radii,
     /// Target centerline segment length. Every branch has at least two
@@ -300,6 +303,27 @@ pub const DEFAULT_LUMP_SIZE: f32 = 3.0;
 #[cfg(feature = "serde")]
 fn default_lump_size() -> f32 {
     DEFAULT_LUMP_SIZE
+}
+
+/// Self-shading: foliage mostly on the crown's outer shell.
+///
+/// Light falls off quickly inside a dense crown, and an open-grown tree
+/// carries most of its leaves in an outer shell, leaving its great limbs
+/// visible within. Each branch with foliage sites is measured by its depth
+/// in the crown: 0 at the crown's surface in its direction from the crown's
+/// centre, 1 at the centre. A branch within `shell` of the surface keeps
+/// its sites; deeper, it keeps them with a probability falling linearly to
+/// `interior` at the centre, keyed per branch, so whole twigs go bare as
+/// shaded twigs do.
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Shade {
+    /// Depth, as a fraction of the crown's radius in that direction, that
+    /// keeps all its foliage, in `[0, 1]`.
+    pub shell: f32,
+    /// Chance a branch at the crown's centre keeps its foliage, in
+    /// `[0, 1]`.
+    pub interior: f32,
 }
 
 /// Pipe-model radius settings.

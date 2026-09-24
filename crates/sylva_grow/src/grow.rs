@@ -13,7 +13,7 @@ use sylva_skeleton::passes::{
 };
 use sylva_skeleton::{Attachment, Branch, BranchId, Frame, Node, Site, Skeleton};
 
-use crate::{Arrangement, Count, Envelope, GrowError, Hierarchy, Level, Shape, Sites};
+use crate::{Arrangement, Count, Envelope, GrowError, Hierarchy, Level, Shade, Shape, Sites};
 
 /// Lineage keys are `level index + 1`, so the trunk's children use lineage 1.
 const TRUNK_LINEAGE_OFFSET: u64 = 1;
@@ -516,17 +516,106 @@ fn prune(nodes: &mut Vec<Node>, intended: f32, envelope: Option<(&Envelope, Key)
     }
 }
 
+/// Direction bins of [`shade_mask`]'s crown surface: azimuth by elevation.
+const SHADE_BINS: [usize; 2] = [24, 12];
+
+/// Which branches the crown shades bare (see [`Shade`]).
+///
+/// Each candidate branch is represented by its midpoint. The crown's
+/// surface in a direction from the crown's centre (the candidates' mean) is
+/// the farthest candidate in that direction's bin or its neighbours.
+fn shade_mask(
+    skeleton: &Skeleton,
+    shade: Shade,
+    seed: u64,
+    candidate: impl Fn(&Branch) -> bool,
+) -> Vec<bool> {
+    let branches = skeleton.branches();
+    let points: Vec<Option<Vec3>> = branches
+        .iter()
+        .map(|b| candidate(b).then(|| b.sample(0.5).position))
+        .collect();
+    let count = points.iter().flatten().count();
+    if count == 0 {
+        return alloc::vec![false; branches.len()];
+    }
+    #[expect(clippy::cast_precision_loss, reason = "a mean over branch points")]
+    let centre = points.iter().flatten().sum::<Vec3>() / count as f32;
+    let [columns, rows] = SHADE_BINS;
+    let bin = |p: Vec3| -> Option<(usize, usize, f32)> {
+        let d = p - centre;
+        let r = d.length();
+        if r <= 1e-6 {
+            return None;
+        }
+        let azimuth = libm::atan2f(d.y, d.x) + PI;
+        let elevation = libm::asinf((d.z / r).clamp(-1.0, 1.0)) + 0.5 * PI;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss,
+            reason = "angles in range map onto the small bin grid"
+        )]
+        let (c, w) = (
+            ((azimuth / TAU * columns as f32) as usize).min(columns - 1),
+            ((elevation / PI * rows as f32) as usize).min(rows - 1),
+        );
+        Some((c, w, r))
+    };
+    let mut reach = alloc::vec![0.0_f32; columns * rows];
+    for p in points.iter().flatten() {
+        if let Some((c, w, r)) = bin(*p) {
+            reach[w * columns + c] = reach[w * columns + c].max(r);
+        }
+    }
+    // A bin's surface is the farthest point in it or its neighbours, so a
+    // sparse bin does not read as a dent.
+    let surface = |c: usize, w: usize| -> f32 {
+        let mut best = 0.0_f32;
+        for row in w.saturating_sub(1)..=(w + 1).min(rows - 1) {
+            for dc in [columns - 1, 0, 1] {
+                best = best.max(reach[row * columns + (c + dc) % columns]);
+            }
+        }
+        best
+    };
+    branches
+        .iter()
+        .zip(&points)
+        .map(|(branch, point)| {
+            let Some((c, w, r)) = point.and_then(bin) else {
+                return false;
+            };
+            let depth = 1.0 - r / surface(c, w).max(1e-6);
+            if depth <= shade.shell {
+                return false;
+            }
+            let x = ((depth - shade.shell) / (1.0 - shade.shell).max(1e-6)).min(1.0);
+            let keep = 1.0 + (shade.interior - 1.0) * x;
+            branch.id.key(seed).with(tag("shade")).unit_f32() >= keep
+        })
+        .collect()
+}
+
 fn place_sites(
     skeleton: &mut Skeleton,
     hierarchy: &Hierarchy,
     seed: u64,
 ) -> Result<usize, GrowError> {
+    let wanted_for = |branch: &Branch| match (branch.order as usize).checked_sub(1) {
+        None => hierarchy.trunk.sites,
+        Some(index) => hierarchy.levels.get(index).and_then(|level| level.sites),
+    };
+    let shaded = match hierarchy.shade {
+        Some(shade) => shade_mask(skeleton, shade, seed, |b| wanted_for(b).is_some()),
+        None => alloc::vec![false; skeleton.branches().len()],
+    };
     let mut sites = Vec::new();
-    for branch in skeleton.branches() {
-        let wanted = match (branch.order as usize).checked_sub(1) {
-            None => hierarchy.trunk.sites,
-            Some(index) => hierarchy.levels.get(index).and_then(|level| level.sites),
-        };
+    for (index, branch) in skeleton.branches().iter().enumerate() {
+        if shaded[index] {
+            continue;
+        }
+        let wanted = wanted_for(branch);
         let Some(Sites {
             per_metre,
             span: [lo, hi],

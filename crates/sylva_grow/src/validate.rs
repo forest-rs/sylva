@@ -129,6 +129,11 @@ pub(crate) fn check(h: &Hierarchy) -> Result<(), GrowError> {
             return Err(invalid(at, "sites"));
         }
     }
+    if let Some(shade) = h.shade
+        && !((0.0..=1.0).contains(&shade.shell) && (0.0..=1.0).contains(&shade.interior))
+    {
+        return Err(invalid(None, "shade"));
+    }
     if let Some(e) = &h.envelope {
         if !finite(e.base) {
             return Err(invalid(None, "envelope.base"));
