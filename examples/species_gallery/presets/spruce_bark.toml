@@ -1,11 +1,12 @@
 # Norway spruce bark for sylva, built from the same dapple graph as
 # `oak_bark.toml`: thin, rounded scales in place of oak's long ridges.
 #
-# One tile covers 1 m of bark. Cells are nearly isotropic (16 x 11 a tile,
-# scales about 6 x 9 cm) and round over a third of their width, so each
+# One tile covers 1 m of bark. Cells are nearly isotropic (28 x 18 a tile,
+# scales about 4 x 6 cm) and round over a third of their width, so each
 # scale reads as a flake between narrow, dark fissures; a strong warp keeps
 # their outlines irregular. Colour is a dark grey-brown
 # with a red cast that weathers only a little greyer, with little lichen.
+# Fissures are the fresh, redder bark under lifted scales, not dark mortar.
 # Heights are in [0, 1]; 1 means 12 mm of relief.
 version = 1
 
@@ -15,7 +16,7 @@ version = 1
 label = "cells"
 kind = "field"
 inputs = []
-op = { op = "cellular", domain = { periodic = { period = [1, 1] } }, frequency = [16.0, 11.0], jitter = 0.9, seed = 17, output = "border" }
+op = { op = "cellular", domain = { periodic = { period = [1, 1] } }, frequency = [28.0, 18.0], jitter = 1.0, seed = 17, output = "border" }
 
 [[nodes]]
 label = "stretch_x"
@@ -128,10 +129,55 @@ kind = "field"
 inputs = ["crack_depth", "patches"]
 op = { op = "max", a = 0, b = 1 }
 
+# Scales are thin and cupped: on the plate, each lifts toward its rim (its
+# distance from the cell's centre, warped as the cells are) before dropping
+# into the fissure, so they read as flakes rather than domed cobbles.
+[[nodes]]
+label = "centres"
+kind = "field"
+inputs = []
+op = { op = "cellular", domain = { periodic = { period = [1, 1] } }, frequency = [28.0, 18.0], jitter = 1.0, seed = 17, output = "f1" }
+
+[[nodes]]
+label = "centres_stretched"
+kind = "field"
+inputs = ["centres", "stretch_x", "stretch_y"]
+op = { op = "warp", input = 0, dx = 1, dy = 2, amount = 0.03 }
+
+[[nodes]]
+label = "centres_wavy"
+kind = "field"
+inputs = ["centres_stretched", "wobble_x", "wobble_y"]
+op = { op = "warp", input = 0, dx = 1, dy = 2, amount = 0.015 }
+
+[[nodes]]
+label = "cup"
+kind = "field"
+inputs = ["centres_wavy"]
+op = { op = "remap", input = 0, from = [0.0, 0.7], to = [0.0, 0.35] }
+
+[[nodes]]
+label = "plate_unit"
+kind = "field"
+inputs = ["plates_primary"]
+op = { op = "remap", input = 0, from = [0.0, 0.85], to = [0.0, 1.0] }
+
+[[nodes]]
+label = "lift"
+kind = "field"
+inputs = ["cup", "plate_unit"]
+op = { op = "mul", a = 0, b = 1 }
+
+[[nodes]]
+label = "scales"
+kind = "field"
+inputs = ["plates_primary", "lift"]
+op = { op = "add", a = 0, b = 1 }
+
 [[nodes]]
 label = "plates"
 kind = "field"
-inputs = ["plates_primary", "cracks"]
+inputs = ["scales", "cracks"]
 op = { op = "min", a = 0, b = 1 }
 
 [[nodes]]
@@ -159,19 +205,19 @@ op = { op = "add", a = 0, b = 1 }
 label = "fissure_color_r"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.022 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.045 }
 
 [[nodes]]
 label = "fissure_color_g"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.014 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.024 }
 
 [[nodes]]
 label = "fissure_color_b"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.01 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.016 }
 
 [[nodes]]
 label = "fissure_color"
@@ -183,19 +229,19 @@ op = { op = "color", r = 0, g = 1, b = 2 }
 label = "bark_color_r"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.052 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.062 }
 
 [[nodes]]
 label = "bark_color_g"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.034 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.042 }
 
 [[nodes]]
 label = "bark_color_b"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.027 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.034 }
 
 [[nodes]]
 label = "bark_color"
@@ -207,19 +253,19 @@ op = { op = "color", r = 0, g = 1, b = 2 }
 label = "weathered_color_r"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.062 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.08 }
 
 [[nodes]]
 label = "weathered_color_g"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.052 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.074 }
 
 [[nodes]]
 label = "weathered_color_b"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.046 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.07 }
 
 [[nodes]]
 label = "weathered_color"
