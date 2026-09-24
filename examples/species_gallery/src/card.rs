@@ -21,6 +21,8 @@ pub(crate) struct Textures {
     pub(crate) bark: Image,
     /// The leaf set's linear base colour, when the species has foliage.
     pub(crate) leaf: Option<Image>,
+    /// The leaf set's coverage, which cuts compound blades into leaflets.
+    pub(crate) leaf_opacity: Option<Image>,
 }
 
 /// Bakes the order-2 branchlet whose subtree carries the most leaves into
@@ -121,6 +123,7 @@ pub(crate) fn bake_twig_card(
     };
     let leaf_material = BakeMaterial {
         base_color: textures.leaf.as_ref(),
+        opacity: textures.leaf_opacity.as_ref(),
         ..BakeMaterial::default()
     };
     let mut meshes = vec![BakeMesh {

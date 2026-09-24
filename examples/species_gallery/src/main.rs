@@ -1,8 +1,14 @@
 // Copyright 2026 the Sylva Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Grows a species preset for several seeds and writes, per seed, a skeleton
-//! dump and the bark mesh for Blender review.
+//! Grows every species preset (an oak and a spruce) for several seeds and
+//! writes, per species and seed, a skeleton dump and the bark mesh for
+//! Blender review.
+//!
+//! A preset is data: `presets/<name>.ron` (the [`Species`]),
+//! `presets/<name>_bark.toml` (its dapple bark recipe) and, optionally,
+//! `presets/<name>_leaf.ron` (its leaf colours, the fields of
+//! [`LeafRecipe`]).
 //!
 //! ```sh
 //! cargo run --release -p species_gallery -- .local/gallery/species-gallery
@@ -27,13 +33,18 @@
 //!   blender --background --python examples/species_gallery/tools/render_beauty.py -- \
 //!     "$shot" ".local/gallery/beauty/oak-$shot.png"
 //! done
+//! blender --background --python examples/species_gallery/tools/render_beauty.py -- \
+//!   hero .local/gallery/beauty/spruce-hero.png --species spruce --seed 1
+//! blender --background --python examples/species_gallery/tools/render_beauty.py -- \
+//!   mixed .local/gallery/beauty/mixed-grove.png
 //! ```
 //!
 //! Outputs default to `.local/gallery/`, which is git-ignored and survives
 //! `cargo clean`; `target/` holds build artifacts only.
 //!
-//! `--preset FILE` grows a species preset read from a RON file instead of
-//! the built-in oak, and `--skeleton-only` writes just each seed's
+//! `--species oak,spruce` grows only those presets, `--preset FILE` grows
+//! a preset read from disk (with its bark and leaf files beside it) instead
+//! of the built-in ones, and `--skeleton-only` writes just each seed's
 //! `skeleton.json`, the fastest loop for crown shape. `--seeds 1,3` grows
 //! only those seeds, and `--tree-only` skips the LOD
 //! chain, card bakes and glTF export, for quick crown iteration. `--welded`
@@ -79,10 +90,72 @@ use sylva_texture::{LeafRecipe, bark, leaf};
 use skeleton_dump::{skeleton_json, skeleton_obj};
 use sylva_species::Species;
 
-const OAK: &str = include_str!("../presets/oak.ron");
-/// The oak's bark recipe: dapple's, scaled to a 1 m tile (see the file).
-const OAK_BARK: &str = include_str!("../presets/oak_bark.toml");
+/// One species preset: its growth and foliage, its bark recipe (dapple's
+/// format, scaled to a 1 m tile), and optionally its leaf colours.
+struct Preset {
+    species: String,
+    bark: String,
+    leaf: Option<String>,
+}
+
+/// The built-in presets, as `(species, bark, leaf colours)` sources.
+const PRESETS: [(&str, &str, Option<&str>); 2] = [
+    (
+        include_str!("../presets/oak.ron"),
+        include_str!("../presets/oak_bark.toml"),
+        None,
+    ),
+    (
+        include_str!("../presets/spruce.ron"),
+        include_str!("../presets/spruce_bark.toml"),
+        Some(include_str!("../presets/spruce_leaf.ron")),
+    ),
+];
+#[cfg(test)]
+const OAK: &str = PRESETS[0].0;
 const SEEDS: [u64; 3] = [1, 2, 3];
+
+/// A species' leaf colours: the fields of [`LeafRecipe`] a preset may set,
+/// read from `<species>_leaf.ron`.
+#[derive(serde::Deserialize)]
+#[serde(default)]
+struct LeafLook {
+    green: [f32; 3],
+    vein: [f32; 3],
+    translucent: [f32; 3],
+    translucency: f32,
+    mottle: f32,
+    roughness: f32,
+}
+
+impl Default for LeafLook {
+    fn default() -> Self {
+        let r = LeafRecipe::default();
+        Self {
+            green: r.green,
+            vein: r.vein,
+            translucent: r.translucent,
+            translucency: r.translucency,
+            mottle: r.mottle,
+            roughness: r.roughness,
+        }
+    }
+}
+
+/// Reads the preset at `path` (`<name>.ron`), with `<name>_bark.toml` and,
+/// if present, `<name>_leaf.ron` beside it.
+fn read_preset(path: &std::path::Path) -> Result<Preset, Box<dyn std::error::Error>> {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("preset file name")?;
+    let sibling = |suffix: &str| path.with_file_name(format!("{stem}{suffix}"));
+    Ok(Preset {
+        species: std::fs::read_to_string(path)?,
+        bark: std::fs::read_to_string(sibling("_bark.toml"))?,
+        leaf: std::fs::read_to_string(sibling("_leaf.ron")).ok(),
+    })
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out_dir = PathBuf::from(".local/gallery/species-gallery");
@@ -92,6 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut glb_only = false;
     let mut skeleton_only = false;
     let mut preset = None;
+    let mut only: Option<Vec<String>> = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -103,16 +177,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--welded" => welded = true,
             "--glb-only" => glb_only = true,
             "--skeleton-only" => skeleton_only = true,
+            "--species" => {
+                let list = args
+                    .next()
+                    .ok_or("--species needs a value, e.g. oak,spruce")?;
+                only = Some(list.split(',').map(str::to_owned).collect());
+            }
             "--preset" => preset = Some(args.next().ok_or("--preset needs a RON file")?),
             _ => out_dir = PathBuf::from(arg),
         }
     }
-    let species: Species = match &preset {
-        Some(path) => ron::from_str(&std::fs::read_to_string(path)?)?,
-        None => ron::from_str(OAK)?,
+    let presets: Vec<Preset> = match &preset {
+        Some(path) => vec![read_preset(std::path::Path::new(path))?],
+        None => PRESETS
+            .iter()
+            .map(|&(species, bark, leaf)| Preset {
+                species: species.into(),
+                bark: bark.into(),
+                leaf: leaf.map(Into::into),
+            })
+            .collect(),
     };
+    for preset in &presets {
+        let species: Species = ron::from_str(&preset.species)?;
+        if only
+            .as_ref()
+            .is_some_and(|names| !names.contains(&species.name))
+        {
+            continue;
+        }
+        grow_species(
+            &out_dir,
+            &species,
+            preset,
+            &seeds,
+            Flags {
+                tree_only,
+                welded,
+                glb_only,
+                skeleton_only,
+            },
+        )?;
+    }
+    println!("wrote {}", out_dir.display());
+    Ok(())
+}
+
+/// Command-line switches that choose what [`grow_species`] writes.
+#[derive(Copy, Clone, Debug)]
+struct Flags {
+    tree_only: bool,
+    welded: bool,
+    glb_only: bool,
+    skeleton_only: bool,
+}
+
+/// Grows, meshes and exports one species for every seed.
+fn grow_species(
+    out_dir: &std::path::Path,
+    species: &Species,
+    preset: &Preset,
+    seeds: &[u64],
+    flags: Flags,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Flags {
+        tree_only,
+        welded,
+        glb_only,
+        skeleton_only,
+    } = flags;
     if skeleton_only {
-        for seed in seeds {
+        for &seed in seeds {
             let grown = species.grow(seed)?;
             let dir = out_dir.join(format!("{}-seed{seed}", species.name));
             std::fs::create_dir_all(&dir)?;
@@ -124,8 +259,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    let textures = write_textures(&out_dir.join("textures"), &species)?;
-    for seed in seeds {
+    let textures = write_textures(&out_dir.join("textures"), species, preset)?;
+    for &seed in seeds {
         let started = Instant::now();
         let grown = species.grow(seed)?;
         let elapsed = started.elapsed();
@@ -233,7 +368,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(dir.join("stats.json"), &stats)?;
         print!("{stats}");
     }
-    println!("wrote {}", out_dir.display());
     Ok(())
 }
 
@@ -419,6 +553,7 @@ fn write_lods(
         },
         leaf: BakeMaterial {
             base_color: textures.leaf.as_ref(),
+            opacity: textures.leaf_opacity.as_ref(),
             ..BakeMaterial::default()
         },
     };
@@ -677,9 +812,10 @@ fn write_mask(path: &std::path::Path, foliage: &Foliage) -> Result<(), Box<dyn s
 fn write_textures(
     dir: &std::path::Path,
     species: &Species,
+    preset: &Preset,
 ) -> Result<card::Textures, Box<dyn std::error::Error>> {
     let started = Instant::now();
-    let recipe: dapple_graph::Recipe = toml::from_str(OAK_BARK)?;
+    let recipe: dapple_graph::Recipe = toml::from_str(&preset.bark)?;
     let bark_set = bark(&recipe)?;
     let mut textures = card::Textures {
         bark: bark_set
@@ -688,14 +824,26 @@ fn write_textures(
             .clone()
             .expect("bark sets have colour"),
         leaf: None,
+        leaf_opacity: None,
     };
     let mut sets = vec![(format!("{}-bark", species.name), bark_set.maps)];
     if let Some(foliage) = &species.foliage {
+        let look: LeafLook = match &preset.leaf {
+            Some(source) => ron::from_str(source)?,
+            None => LeafLook::default(),
+        };
         let leaf_set = leaf(&LeafRecipe {
             shape: foliage.shape,
+            green: look.green,
+            vein: look.vein,
+            translucent: look.translucent,
+            translucency: look.translucency,
+            mottle: look.mottle,
+            roughness: look.roughness,
             ..LeafRecipe::default()
         })?;
         textures.leaf = leaf_set.maps.base_color.clone();
+        textures.leaf_opacity = leaf_set.maps.opacity.clone();
         sets.push((format!("{}-leaf", species.name), leaf_set.maps));
     }
     let generated = started.elapsed();
@@ -733,7 +881,58 @@ fn write_textures(
 mod tests {
     use sylva_species::Species;
 
-    use super::OAK;
+    use super::{LeafLook, OAK, PRESETS};
+
+    /// Every built-in preset parses, with its bark recipe and leaf colours,
+    /// and grows.
+    #[test]
+    fn presets_parse_and_grow() {
+        for (species, bark, leaf) in PRESETS {
+            let species: Species = ron::from_str(species).expect("species");
+            let _: dapple_graph::Recipe = toml::from_str(bark).expect("bark recipe");
+            if let Some(leaf) = leaf {
+                let _: LeafLook = ron::from_str(leaf).expect("leaf colours");
+            }
+            let grown = species.grow(1).expect("grow");
+            assert!(grown.report.sites > 0, "{} carries foliage", species.name);
+        }
+    }
+
+    /// The spruce is excurrent: its trunk is the leader, reaching above
+    /// every branch, and its crown narrows upward into a cone.
+    #[test]
+    fn spruce_keeps_a_single_leader_and_a_conical_crown() {
+        let species: Species = ron::from_str(PRESETS[1].0).expect("preset");
+        assert_eq!(species.name, "spruce");
+        for seed in 1..=4 {
+            let grown = species.grow(seed).expect("grow");
+            let branches = grown.skeleton.branches();
+            let top = |b: &sylva_skeleton::Branch| {
+                b.nodes
+                    .iter()
+                    .map(|n| n.position.z)
+                    .fold(f32::MIN, f32::max)
+            };
+            let leader = top(&branches[0]);
+            for branch in &branches[1..] {
+                assert!(
+                    top(branch) < leader,
+                    "seed {seed}: a branch overtops the leader"
+                );
+            }
+            // Horizontal reach of nodes in the lower and upper thirds.
+            let reach = |lo: f32, hi: f32| {
+                branches
+                    .iter()
+                    .flat_map(|b| &b.nodes)
+                    .filter(|n| (lo * leader..hi * leader).contains(&n.position.z))
+                    .map(|n| n.position.truncate().length())
+                    .fold(0.0, f32::max)
+            };
+            let (lower, upper) = (reach(0.1, 0.4), reach(0.7, 1.0));
+            assert!(upper < 0.6 * lower, "seed {seed}: {upper} vs {lower}");
+        }
+    }
 
     /// Scaffold and secondary branches of the oak must not curl back on
     /// themselves: their overall turn stays under 135 degrees (a limb may

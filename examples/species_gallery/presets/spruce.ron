@@ -1,0 +1,139 @@
+// An open-grown Norway spruce (Picea abies-like), excurrent: one straight,
+// dominant leader to the top, and a whorl of branches at every year's
+// growth. Lower branches are long and droop, their tips turning up; upper
+// ones are short and swept up, so the crown is a narrow cone. Side shoots
+// hang from the branches in combs, and every shoot is clothed in needles,
+// here as needle sprays (compound blades whose leaflets are needles).
+// Metres and radians, +Z up.
+Species(
+    name: "spruce",
+    growth: Hierarchical((
+        trunk: (
+            length: 21.0,
+            length_jitter: 0.1,
+            lean: 0.03,
+            shape: (gnarl: 0.01, gnarl_wavelength: 4.0),
+        ),
+        levels: [
+            // Branch whorls, two a metre, four to six branches each.
+            (
+                count: PerMetre(9.0),
+                span: (0.06, 0.97),
+                arrangement: Whorled(per_node: 5),
+                roll_jitter: 0.35,
+                position_jitter: 0.3,
+                // Lower branches leave at or below level; the top ones climb.
+                angle: [(0.0, 1.85), (0.4, 1.6), (0.8, 1.2), (1.0, 0.7)],
+                angle_jitter: 0.12,
+                // A cone: longest at the bottom, nothing at the top.
+                length: [(0.0, 0.24), (0.35, 0.18), (0.8, 0.07), (1.0, 0.02)],
+                length_jitter: 0.2,
+                balance: 0.3,
+                // Droop, then turn up at the tip.
+                shape: (
+                    curve: -0.25,
+                    curve_back: 0.55,
+                    gnarl: 0.08,
+                    gnarl_wavelength: 1.0,
+                    sag: 0.05,
+                ),
+                sites: Some((
+                    per_metre: 20.0,
+                    span: (0.35, 1.0),
+                    kind: 0,
+                    angle: 0.45,
+                    tip_cluster: 3,
+                    cluster_span: 0.06,
+                )),
+            ),
+            // Side shoots, mostly in the branch's plane, hanging in combs.
+            (
+                count: PerMetre(4.5),
+                span: (0.08, 0.95),
+                arrangement: Alternate,
+                roll_jitter: 0.5,
+                position_jitter: 0.6,
+                angle: [(0.0, 1.0), (1.0, 0.75)],
+                angle_jitter: 0.2,
+                length: [(0.0, 0.4), (0.5, 0.33), (1.0, 0.15)],
+                length_jitter: 0.25,
+                shape: (
+                    gnarl: 0.2,
+                    gnarl_wavelength: 0.5,
+                    sag: 0.8,
+                ),
+                sites: Some((
+                    per_metre: 26.0,
+                    span: (0.1, 1.0),
+                    kind: 0,
+                    angle: 0.55,
+                    tip_cluster: 3,
+                    cluster_span: 0.08,
+                )),
+            ),
+            // Twigs: the finest shoots, all carrying needles.
+            (
+                count: PerMetre(10.0),
+                span: (0.1, 0.95),
+                arrangement: Alternate,
+                roll_jitter: 0.6,
+                position_jitter: 0.6,
+                angle: [(0.0, 0.9), (1.0, 0.7)],
+                angle_jitter: 0.25,
+                length: [(0.0, 0.35), (1.0, 0.2)],
+                length_jitter: 0.3,
+                shape: (gnarl: 0.3, gnarl_wavelength: 0.2, sag: 0.4),
+                sites: Some((
+                    per_metre: 30.0,
+                    span: (0.1, 1.0),
+                    kind: 0,
+                    angle: 0.55,
+                    tip_cluster: 2,
+                    cluster_span: 0.1,
+                )),
+            ),
+        ],
+        // A narrow cone; side shoots are trimmed to it, loosely.
+        envelope: Some((
+            base: 0.5,
+            height: 21.5,
+            radius: 5.2,
+            profile: [(0.0, 0.95), (0.15, 1.0), (0.6, 0.55), (1.0, 0.03)],
+            from_level: 1,
+            min_fraction: 0.3,
+            lumps: 0.15,
+            lump_size: 2.0,
+        )),
+        radii: (tip_radius: 0.003, exponent: 2.4, shoots_per_metre: 12.0, bole_taper: 0.04),
+        segment_length: 0.25,
+    )),
+    // Needle sprays: a shoot's needles, flattened into a spray about 15 cm
+    // long with needles 2 to 3 cm, several around every shoot. Needles are
+    // drawn about twice their 1.5 mm width so they survive at a distance.
+    foliage: Some((
+        site_kind: 0,
+        shape: (
+            length: 0.15,
+            width: 0.36,
+            widest_at: 0.35,
+            tip: 0.9,
+            lobes: 0,
+            lobe_depth: 0.0,
+            petiole: 0.0,
+            fold: 0.45,
+            curl: 0.04,
+            stations: 6,
+            lobe_skew: 0.9,
+            auricle: 0.0,
+            leaflets: 32,
+            leaflet_width: 0.02,
+            leaflet_span: 0.02,
+        ),
+        variants: 4,
+        variation: (size: 0.2, width: 0.15, lobe_depth: 0.0),
+        droop: 0.1,
+        light: 0.5,
+        roll_jitter: 0.6,
+        seed: 3,
+    )),
+)

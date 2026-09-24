@@ -20,8 +20,9 @@ The design lives in [`docs/design.md`](docs/design.md).
   per-vertex branch index for provenance.
 - **[sylva_foliage](crates/sylva_foliage/)**: leaves. One contour per leaf
   shape yields the full blade mesh, a card and its coverage mask in a shared
-  UV frame; keyed template variants are placed on skeleton sites as
-  instances with a canopy normal.
+  UV frame; compound shapes (needle sprays, fronds) cut their outline into a
+  midrib and leaflets through the mask; keyed template variants are placed
+  on skeleton sites as instances with a canopy normal.
 - **[sylva_texture](crates/sylva_texture/)**: species texture recipes on
   [dapple](https://github.com/forest-rs/dapple): a tileable bark set sized to
   the bark UVs, and a leaf set in a leaf shape's own UV frame, as OpenPBR
@@ -41,7 +42,9 @@ Examples live in `examples/`:
 - **[skeleton_dump](examples/skeleton_dump/)**: writes a debug OBJ of a small
   generated skeleton and renders it with Blender for visual review.
 - **[species_gallery](examples/species_gallery/)**: grows the species presets in
-  `presets/` (an oak so far) for several seeds, dumps each skeleton for the
+  `presets/` (an open-grown oak and a Norway spruce, each a species RON file
+  with a dapple bark recipe and optional leaf colours beside it) for several
+  seeds, dumps each skeleton for the
   same Blender review script, meshes its bark (`bark.obj`, rendered with a UV
   grid by `tools/render_bark.py`), places its leaves (`leaves.obj`,
   `leaf-mask.png`), and generates its bark and leaf texture sets

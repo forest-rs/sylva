@@ -23,6 +23,9 @@ Shots:
 - `backlit`: the same view with the sun behind the tree, where leaf
   translucency carries the crown;
 - `grove`: seeds 3, 5, 2, 1 and 4 together, for variation between seeds;
+- `mixed`: a grove of oaks and spruces (seeds 1 to 3 of each), with both
+  species in the distant clumps, for how different architectures read
+  together;
 - `bark`: the trunk base and lower limbs close up.
 
 Everything renders on the Metal GPU with adaptive sampling and OIDN, under
@@ -48,7 +51,7 @@ import bpy
 from mathutils import Vector
 
 parser = argparse.ArgumentParser(prog="render_beauty.py")
-parser.add_argument("shot", choices=("hero", "backlit", "grove", "bark"))
+parser.add_argument("shot", choices=("hero", "backlit", "grove", "mixed", "bark"))
 parser.add_argument("out", type=Path)
 parser.add_argument("--gallery", type=Path, default=Path(".local/gallery/species-gallery"))
 parser.add_argument("--species", default="oak")
@@ -59,7 +62,10 @@ ARGS = parser.parse_args(sys.argv[sys.argv.index("--") + 1 :])
 SHOT, OUT, GEN = ARGS.shot, ARGS.out.resolve(), ARGS.gallery
 SAMPLES = ARGS.samples
 RES = (int(1600 * ARGS.scale), int(1200 * ARGS.scale))
-TRANS = GEN / f"textures/{ARGS.species}-leaf/gltf/diffuse_transmission.png"
+
+
+def trans_path(species):
+    return GEN / f"textures/{species}-leaf/gltf/diffuse_transmission.png"
 
 
 def setup_render():
@@ -94,7 +100,7 @@ def setup_render():
     return scene
 
 
-def fix_materials(objs, done):
+def fix_materials(objs, done, species):
     for o in objs:
         for slot in o.material_slots:
             m = slot.material
@@ -125,7 +131,8 @@ def fix_materials(objs, done):
             back = nodes.new("ShaderNodeBsdfTranslucent")
             mix = nodes.new("ShaderNodeMixShader")
             tex = nodes.new("ShaderNodeTexImage")
-            tex.image = bpy.data.images.get(TRANS.name) or bpy.data.images.load(str(TRANS))
+            trans = trans_path(species)
+            tex.image = bpy.data.images.load(str(trans), check_existing=True)
             tex.image.alpha_mode = "CHANNEL_PACKED"
             links.new(tex.outputs["Color"], back.inputs["Color"])
             links.new(tex.outputs["Alpha"], mix.inputs["Fac"])
@@ -139,8 +146,9 @@ def fix_materials(objs, done):
             links.new(cut.outputs["Shader"], out.inputs["Surface"])
 
 
-def import_tree(seed, loc=(0, 0, 0), rot=0.0, scale=1.0, done=None):
-    path = GEN / f"{ARGS.species}-seed{seed}/glb/lod0.glb"
+def import_tree(seed, loc=(0, 0, 0), rot=0.0, scale=1.0, done=None, species=None):
+    species = species or ARGS.species
+    path = GEN / f"{species}-seed{seed}/glb/lod0.glb"
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=str(path))
     new = [o for o in bpy.data.objects if o not in before]
@@ -152,7 +160,7 @@ def import_tree(seed, loc=(0, 0, 0), rot=0.0, scale=1.0, done=None):
     root.location = loc
     root.rotation_euler = (0, 0, rot)
     root.scale = (scale,) * 3
-    fix_materials([o for o in new if o.type == "MESH"], done if done is not None else set())
+    fix_materials([o for o in new if o.type == "MESH"], done if done is not None else set(), species)
     bpy.context.view_layer.update()
     meshes = [o for o in new if o.type == "MESH"]
     return root, meshes
@@ -384,25 +392,28 @@ def haze(scene, size, density=0.0015):
     return box
 
 
-def far_trees(scene, cam_loc, aim, done, count=420, near=260.0, far=1100.0, spread=75.0):
-    """Scatter linked copies of LOD2 oaks in a loose band behind the subject,
-    to break the bare horizon."""
+def far_trees(scene, cam_loc, aim, done, count=420, near=260.0, far=1100.0, spread=75.0,
+              species=None):
+    """Scatter linked copies of LOD2 trees of `species` (default the shot's
+    species) in a loose band behind the subject, to break the bare
+    horizon."""
     rng = random.Random(11)
     protos = []
-    for seed in (1, 2, 4, 5, 6, 3):
-        path = GEN / f"{ARGS.species}-seed{seed}/glb/lod2.glb"
-        if not path.exists():
-            continue
-        before = set(bpy.data.objects)
-        bpy.ops.import_scene.gltf(filepath=str(path))
-        new = [o for o in bpy.data.objects if o not in before]
-        fix_materials([o for o in new if o.type == "MESH"], done)
-        coll = bpy.data.collections.new(f"far{seed}")
-        for o in new:
-            for c in list(o.users_collection):
-                c.objects.unlink(o)
-            coll.objects.link(o)
-        protos.append(coll)
+    for sp in species or (ARGS.species,):
+        for seed in (1, 2, 4, 5, 6, 3):
+            path = GEN / f"{sp}-seed{seed}/glb/lod2.glb"
+            if not path.exists():
+                continue
+            before = set(bpy.data.objects)
+            bpy.ops.import_scene.gltf(filepath=str(path))
+            new = [o for o in bpy.data.objects if o not in before]
+            fix_materials([o for o in new if o.type == "MESH"], done, sp)
+            coll = bpy.data.collections.new(f"far-{sp}{seed}")
+            for o in new:
+                for c in list(o.users_collection):
+                    c.objects.unlink(o)
+                coll.objects.link(o)
+            protos.append(coll)
     if not protos:
         return
     base = math.atan2(aim[1] - cam_loc[1], aim[0] - cam_loc[0])
@@ -452,19 +463,25 @@ def main():
         lo, hi = bounds(meshes)
         print("BOUNDS", lo, hi)
         cx, cy = (lo.x + hi.x) / 2, (lo.y + hi.y) / 2
+        # Frame the whole tree: an oak's 26 m at a 6 m aim, farther and
+        # higher for a taller tree.
+        fit = max(1.0, hi.z / 18.0)
+        aim_z = 6.0 * fit
         ground(scene)
         if SHOT == "hero":
             world_and_sun(scene, elevation=13, azimuth=-168, sun_energy=9.0, sky_strength=0.2)
-            cam_loc = (cx + 26 * math.cos(math.radians(-110)), cy + 26 * math.sin(math.radians(-110)), 1.65)
-            camera(scene, cam_loc, (cx, cy, 6.0), lens=30, dof=(26.0, 8.0))
+            dist = 26 * fit
+            cam_loc = (cx + dist * math.cos(math.radians(-110)), cy + dist * math.sin(math.radians(-110)), 1.65)
+            camera(scene, cam_loc, (cx, cy, aim_z), lens=30, dof=(dist, 8.0))
             grass(scene, cam_loc, (80, 90), 300000, aim=(cx, cy))
             haze(scene, (3000, 3000, 80), 0.0009)
             far_trees(scene, cam_loc, (cx, cy), done)
         elif SHOT == "backlit":
             world_and_sun(scene, elevation=13, azimuth=87, sun_energy=14.0, sky_strength=0.16)
             scene.view_settings.exposure = 0.0
-            cam_loc = (cx + 24 * math.cos(math.radians(-110)), cy + 24 * math.sin(math.radians(-110)), 1.65)
-            camera(scene, cam_loc, (cx, cy, 6.0), lens=30, dof=(24.0, 8.0))
+            dist = 24 * fit
+            cam_loc = (cx + dist * math.cos(math.radians(-110)), cy + dist * math.sin(math.radians(-110)), 1.65)
+            camera(scene, cam_loc, (cx, cy, aim_z), lens=30, dof=(dist, 8.0))
             grass(scene, cam_loc, (80, 90), 300000, aim=(cx, cy))
             haze(scene, (3000, 3000, 80), 0.0004)
             far_trees(scene, cam_loc, (cx, cy), done)
@@ -486,17 +503,29 @@ def main():
             grass(scene, cam_loc, (45, 50), 200000, height=0.2, aim=(tx, ty))
     else:
         rng = random.Random(7)
+        sp = ARGS.species
         placements = [
-            (3, (0, 0)),
-            (5, (-15, 10)),
-            (2, (14, 13)),
-            (1, (-2, 26)),
-            (4, (24, -6)),
+            (sp, 3, (0, 0)),
+            (sp, 5, (-15, 10)),
+            (sp, 2, (14, 13)),
+            (sp, 1, (-2, 26)),
+            (sp, 4, (24, -6)),
         ]
-        for seed, (x, y) in placements:
+        far_species = None
+        if SHOT == "mixed":
+            placements = [
+                ("oak", 3, (0, 0)),
+                ("spruce", 1, (-13, 12)),
+                ("spruce", 2, (12, 15)),
+                ("oak", 1, (-4, 30)),
+                ("spruce", 3, (22, -4)),
+                ("oak", 2, (27, 24)),
+            ]
+            far_species = ("oak", "spruce")
+        for species, seed, (x, y) in placements:
             rot, scale = rng.uniform(0, 2 * math.pi), rng.uniform(0.85, 1.15)
-            if not (GEN / f"{ARGS.species}-seed{seed}/glb/lod0.glb").exists():
-                print("SKIP seed", seed, "(no GLBs; run species_gallery --glb-only)")
+            if not (GEN / f"{species}-seed{seed}/glb/lod0.glb").exists():
+                print("SKIP", species, seed, "(no GLBs; run species_gallery --glb-only)")
                 continue
             import_tree(
                 seed,
@@ -504,6 +533,7 @@ def main():
                 rot=rot,
                 scale=scale,
                 done=done,
+                species=species,
             )
         ground(scene)
         world_and_sun(scene, elevation=15, azimuth=-165, sun_energy=9.0, sky_strength=0.2)
@@ -512,7 +542,7 @@ def main():
         camera(scene, cam_loc, (6.5, 8, 6.8), lens=27)
         grass(scene, cam_loc, (95, 120), 400000, aim=(4, 8))
         haze(scene, (3000, 3000, 80), 0.0008)
-        far_trees(scene, cam_loc, (4, 8), done, near=300.0)
+        far_trees(scene, cam_loc, (4, 8), done, near=300.0, species=far_species)
     print("SETUP", round(time.time() - start, 1))
     t = time.time()
     OUT.parent.mkdir(parents=True, exist_ok=True)

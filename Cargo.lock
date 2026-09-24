@@ -648,6 +648,7 @@ dependencies = [
  "exedra_mesh",
  "png",
  "ron",
+ "serde",
  "skeleton_dump",
  "sylva_asset",
  "sylva_bake",

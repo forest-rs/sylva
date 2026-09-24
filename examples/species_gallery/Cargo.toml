@@ -14,6 +14,7 @@ dapple_graph = { features = ["serde"], workspace = true }
 exedra_mesh = { features = ["std"], workspace = true }
 png = "0.18.1"
 ron = "0.11.0"
+serde.workspace = true
 skeleton_dump = { path = "../skeleton_dump" }
 sylva_asset.workspace = true
 sylva_bake.workspace = true

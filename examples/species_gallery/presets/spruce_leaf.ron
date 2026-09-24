@@ -1,0 +1,10 @@
+// Norway spruce needles: a dark, slightly blue green, waxy and glossier than
+// a broadleaf, and thick enough that little light passes through.
+(
+    green: (0.012, 0.035, 0.018),
+    vein: (0.02, 0.05, 0.025),
+    translucent: (0.12, 0.25, 0.05),
+    translucency: 0.25,
+    mottle: 0.12,
+    roughness: 0.45,
+)
