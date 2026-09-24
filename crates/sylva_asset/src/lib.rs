@@ -39,7 +39,7 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use exedra_mesh::{BuildError, ExtractParams, Mesh, MeshBuilder, TriMesh, op};
-use glam::{Quat, Vec3};
+use glam::{Affine3A, Vec3};
 use openpbr::Parameters;
 use openpbr::color::{LinearSrgb, OpaqueColor};
 use sylva_foliage::{Foliage, LeafInstance};
@@ -137,39 +137,41 @@ pub struct AssetLod {
     pub crossfade: f32,
     /// Its meshes; a level may have no meshes of some kind.
     pub meshes: Vec<AssetMesh>,
-    /// The same leaves as the `leaves` mesh, as templates and placements,
+    /// The same leaves as the `leaves` meshes, as templates and placements,
     /// for exporters that instance them; `None` when the level draws no
     /// individual leaves.
-    pub leaves: Option<AssetLeaves>,
+    pub leaves: Option<AssetInstances>,
+    /// The same cluster cards as the `cards` mesh, as one unit quad per
+    /// baked exemplar and one placement per card plane, for exporters that
+    /// instance them; `None` when the level has no cluster cards.
+    pub cards: Option<AssetInstances>,
 }
 
-/// A level's leaves as shared templates and per-leaf placements.
+/// Shared template meshes and per-copy placements.
 ///
-/// Instancing draws each template once per placement. It gives up what the
-/// merged `leaves` mesh bakes per leaf: canopy normals (the templates carry
-/// their own) and per-vertex branch provenance (each placement keeps its
-/// branch instead).
+/// Instancing draws each template once per placement: a species' small
+/// library of leaves or baked cluster exemplars, repeated across the
+/// crown. It gives up what the merged meshes bake per copy: canopy normals
+/// (the templates carry their own) and per-vertex branch provenance (each
+/// placement keeps its branch instead, the key for wind pivots).
 #[derive(Clone, Debug)]
-pub struct AssetLeaves {
-    /// Template meshes in leaf space (midrib `+Y`, upper surface `+Z`),
-    /// with UVs and normals, drawn with the leaf material.
+pub struct AssetInstances {
+    /// Template meshes in their own space, with UVs and normals.
     pub templates: Vec<Mesh>,
-    /// One placement per leaf.
-    pub instances: Vec<AssetLeaf>,
+    /// One placement per copy.
+    pub instances: Vec<AssetInstance>,
 }
 
-/// One leaf's placement.
+/// One copy of a template.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct AssetLeaf {
-    /// Index into [`AssetLeaves::templates`].
+pub struct AssetInstance {
+    /// Index into [`AssetInstances::templates`].
     pub template: u32,
-    /// Blade base position.
-    pub position: Vec3,
-    /// Rotation from leaf space.
-    pub rotation: Quat,
-    /// Uniform scale.
-    pub scale: f32,
-    /// Index in the skeleton of the carrying branch, or `u32::MAX`.
+    /// Template space to tree space: a rotation and a positive, possibly
+    /// non-uniform scale along the template's axes, then a translation.
+    pub transform: Affine3A,
+    /// Index in the skeleton of the branch the copy belongs to (a leaf's
+    /// site branch, a card's cluster root), or `u32::MAX`.
     pub branch: u32,
 }
 
@@ -282,21 +284,24 @@ pub fn build_asset(
                     mesh: leaf_mesh(foliage, &level.templates, chunk, &leaf_branches)?,
                 });
             }
-            leaves = Some(AssetLeaves {
+            leaves = Some(AssetInstances {
                 templates: level.templates.clone(),
                 instances: level
                     .leaves
                     .iter()
-                    .map(|leaf| AssetLeaf {
+                    .map(|leaf| AssetInstance {
                         template: leaf.template,
-                        position: leaf.position,
-                        rotation: leaf.rotation,
-                        scale: leaf.scale,
+                        transform: Affine3A::from_scale_rotation_translation(
+                            Vec3::splat(leaf.scale),
+                            leaf.rotation,
+                            leaf.position,
+                        ),
                         branch: branch_of_site(foliage, &leaf_branches, leaf.site),
                     })
                     .collect(),
             });
         }
+        let mut cards = None;
         if let Some(clusters) = &level.clusters {
             let material = u32::try_from(table.len()).map_err(|_| AssetError::TooLarge)?;
             let level_index = u32::try_from(index).map_err(|_| AssetError::TooLarge)?;
@@ -316,12 +321,14 @@ pub fn build_asset(
                 material,
                 mesh: quad_mesh(&clusters.geometry(), &branches)?,
             });
+            cards = Some(card_instances(clusters)?);
         }
         out.push(AssetLod {
             screen_size: level.level.screen_size,
             crossfade: level.level.crossfade,
             meshes,
             leaves,
+            cards,
         });
     }
     if let Some(impostor) = &chain.impostor {
@@ -347,6 +354,7 @@ pub fn build_asset(
                 mesh: quad_mesh(&geometry, &branches)?,
             }],
             leaves: None,
+            cards: None,
         });
     }
     let report = AssetReport {
@@ -417,6 +425,44 @@ fn branch_of_site(foliage: &Foliage, leaf_branches: &[u32], site: u32) -> u32 {
         .map_or(u32::MAX, |i| leaf_branches[i])
 }
 
+/// Cluster cards as instances: per baked exemplar, a unit quad (`[-1, 1]`
+/// in `X` and `Y`, facing `+Z`) with UVs over its atlas cell; per card plane,
+/// a placement stretching it to the plane's half extents.
+fn card_instances(clusters: &sylva_lod::Clusters) -> Result<AssetInstances, AssetError> {
+    let layout = clusters.layout();
+    let templates = (0..clusters.variants.len())
+        .map(|v| {
+            let mut quad = TriMesh::default();
+            sylva_lod::push_unit_quad(
+                &mut quad,
+                layout.cell(u32::try_from(v).map_err(|_| AssetError::TooLarge)?),
+            );
+            // Templates carry no branch layer; each placement keeps its own.
+            quad_mesh(&quad, &[])
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let instances = clusters
+        .planes()
+        .map(|(card, right, up)| {
+            let toward = right.cross(up);
+            AssetInstance {
+                template: card.variant,
+                transform: Affine3A::from_cols(
+                    (right * card.half.x).into(),
+                    (up * card.half.y).into(),
+                    toward.into(),
+                    card.center.into(),
+                ),
+                branch: card.root,
+            }
+        })
+        .collect();
+    Ok(AssetInstances {
+        templates,
+        instances,
+    })
+}
+
 /// Card quads as a mesh, one branch index per vertex.
 fn quad_mesh(geometry: &TriMesh, branches: &[u32]) -> Result<Mesh, AssetError> {
     let merged = Merged {
@@ -436,7 +482,8 @@ fn quad_mesh(geometry: &TriMesh, branches: &[u32]) -> Result<Mesh, AssetError> {
 }
 
 /// Triangle soup with per-vertex UVs, normals and branches, turned into a
-/// mesh whose corners carry them.
+/// mesh whose corners carry them; with no branches, the mesh has no
+/// branch layer.
 #[derive(Default)]
 struct Merged {
     positions: Vec<[f32; 3]>,
@@ -458,8 +505,10 @@ impl Merged {
         }
         let built = builder.build().map_err(AssetError::Build)?;
         let mut mesh = built.mesh;
-        mesh.define_dense_layer(BRANCH_LAYER, u32::MAX)
-            .map_err(|_| AssetError::Kernel)?;
+        if !self.branches.is_empty() {
+            mesh.define_dense_layer(BRANCH_LAYER, u32::MAX)
+                .map_err(|_| AssetError::Kernel)?;
+        }
         // Sparse corner layers insert fastest in ascending ID order.
         let mut corners: Vec<(exedra_mesh::CornerId, usize)> = Vec::new();
         for (face, edges) in built.face_edge_ids.iter().enumerate() {

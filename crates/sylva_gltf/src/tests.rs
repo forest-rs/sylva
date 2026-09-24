@@ -6,7 +6,8 @@ use exedra_mesh::{Mesh, MeshBuilder, op};
 use openpbr::Parameters;
 use openpbr::color::{LinearSrgb, OpaqueColor};
 use sylva_asset::{
-    AssetLeaf, AssetLeaves, AssetLod, AssetMesh, AssetReport, MaterialRole, TreeAsset, TreeMaterial,
+    AssetInstance, AssetInstances, AssetLod, AssetMesh, AssetReport, MaterialRole, TreeAsset,
+    TreeMaterial,
 };
 use sylva_mesh::BRANCH_LAYER;
 
@@ -90,6 +91,7 @@ fn asset() -> TreeAsset {
                 },
             ],
             leaves: None,
+            cards: None,
         }],
         materials: vec![
             TreeMaterial {
@@ -219,14 +221,16 @@ fn instanced_leaves_draw_each_template_once() {
         material: 1,
         mesh: quad(5),
     });
-    let leaf = |x: f32| AssetLeaf {
+    let leaf = |x: f32| AssetInstance {
         template: 0,
-        position: glam::Vec3::new(x, 0.0, 2.0),
-        rotation: glam::Quat::from_rotation_z(x),
-        scale: 0.5,
+        transform: glam::Affine3A::from_scale_rotation_translation(
+            glam::Vec3::splat(0.5),
+            glam::Quat::from_rotation_z(x),
+            glam::Vec3::new(x, 0.0, 2.0),
+        ),
         branch: 3,
     };
-    asset.lods[0].leaves = Some(AssetLeaves {
+    asset.lods[0].leaves = Some(AssetInstances {
         templates: vec![bare_quad()],
         instances: vec![leaf(0.0), leaf(1.0), leaf(2.0)],
     });
@@ -253,6 +257,11 @@ fn instanced_leaves_draw_each_template_once() {
     assert_eq!(
         json["accessors"][usize::try_from(translation).expect("index")]["count"],
         3
+    );
+    // Each copy keeps its branch as its instance seed.
+    assert!(
+        batched[0]["attributes"].get("_SEED").is_some(),
+        "branch seeds"
     );
 
     // The default still merges.

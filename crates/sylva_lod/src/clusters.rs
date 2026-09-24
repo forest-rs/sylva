@@ -111,25 +111,41 @@ impl Clusters {
     pub fn geometry(&self) -> TriMesh {
         let layout = self.layout();
         let mut out = TriMesh::default();
-        for card in &self.cards {
-            let toward = card.right.cross(card.up);
-            for plane in 0..self.params.planes {
-                #[expect(clippy::cast_precision_loss, reason = "at most three planes")]
-                let angle = core::f32::consts::PI * plane as f32 / self.params.planes as f32;
-                let right = card.right * libm::cosf(angle) + toward * libm::sinf(angle);
-                push_quad(
-                    &mut out,
-                    card.center,
-                    right,
-                    card.up,
-                    card.half,
-                    layout.cell(card.variant),
-                    card.canopy_normal,
-                );
-            }
+        for (card, right, up) in self.planes() {
+            push_quad(
+                &mut out,
+                card.center,
+                right,
+                up,
+                card.half,
+                layout.cell(card.variant),
+                card.canopy_normal,
+            );
         }
         out
     }
+
+    /// Every card plane in [`Self::geometry`] order: the card, the plane's
+    /// unit `right` (the card's, turned about `up` by
+    /// `plane * pi / planes`) and its unit `up`.
+    pub fn planes(&self) -> impl Iterator<Item = (&ClusterCard, Vec3, Vec3)> + '_ {
+        let planes = self.params.planes;
+        self.cards.iter().flat_map(move |card| {
+            let toward = card.right.cross(card.up);
+            (0..planes).map(move |plane| {
+                #[expect(clippy::cast_precision_loss, reason = "at most three planes")]
+                let angle = core::f32::consts::PI * plane as f32 / planes as f32;
+                let right = card.right * libm::cosf(angle) + toward * libm::sinf(angle);
+                (card, right, card.up)
+            })
+        })
+    }
+}
+
+/// Appends a unit quad, `[-1, 1]` in `X` and `Y` facing `+Z`, with UVs over
+/// `cell`: the template a card plane instances.
+pub fn push_unit_quad(out: &mut TriMesh, cell: [f32; 4]) {
+    push_quad(out, Vec3::ZERO, Vec3::X, Vec3::Y, Vec2::ONE, cell, Vec3::Z);
 }
 
 /// A grid of equal atlas cells, filled row by row from `v = 0`.

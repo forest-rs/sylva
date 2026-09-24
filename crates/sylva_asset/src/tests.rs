@@ -158,6 +158,25 @@ fn every_level_becomes_meshes_with_materials_and_provenance() {
             .all(|l| (l.template as usize) < instanced.templates.len())
     );
     assert!(asset.lods[2].leaves.is_none(), "cards draw no leaves");
+    // Instanced cards: one quad per exemplar, one placement per card plane,
+    // each landing on the merged card geometry's corners.
+    let clusters = chain.levels[2].clusters.as_ref().expect("clusters");
+    let cards = asset.lods[2].cards.as_ref().expect("instanced cards");
+    assert_eq!(cards.templates.len(), clusters.variants.len());
+    assert_eq!(
+        cards.instances.len(),
+        clusters.cards.len() * clusters.params.planes as usize
+    );
+    let merged = clusters.geometry();
+    for (plane, copy) in cards.instances.iter().enumerate() {
+        assert_eq!(
+            copy.branch,
+            clusters.cards[plane / clusters.params.planes as usize].root
+        );
+        let corner = copy.transform.transform_point3(Vec3::new(1.0, 1.0, 0.0));
+        let expected = Vec3::from_array(merged.positions[4 * plane + 2]);
+        assert!(corner.distance(expected) < 1e-4, "{corner} vs {expected}");
+    }
     let branches = u32::try_from(skeleton.branches().len()).expect("few branches");
     for lod in &asset.lods {
         for mesh in &lod.meshes {

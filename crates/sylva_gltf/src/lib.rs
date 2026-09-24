@@ -10,12 +10,15 @@
 //! custom attribute `_BRANCH` (float-encoded branch indices, exact below
 //! 2^24). Coordinates convert from sylva's Z-up to glTF's Y-up.
 //!
-//! [`ExportOptions::leaves`] chooses how leaves are written. The default,
-//! [`LeafExport::Merged`], writes the level's merged leaf mesh with canopy
-//! normals and per-vertex branches. [`LeafExport::Instanced`] writes each
-//! leaf template once and places it per leaf with `EXT_mesh_gpu_instancing`:
-//! far smaller files, but leaves shade by their template normals instead of
-//! canopy normals and carry [`NO_BRANCH`].
+//! [`ExportOptions::leaves`] chooses how leaves and cluster cards are
+//! written. The default, [`LeafExport::Merged`], writes the level's merged
+//! leaf and card meshes with canopy normals and per-vertex branches.
+//! [`LeafExport::Instanced`] writes each leaf template and each baked
+//! cluster exemplar's quad once, as an `exedra_assembly` placement set
+//! drawn with `EXT_mesh_gpu_instancing`: far smaller files, but copies shade
+//! by their template normals instead of canopy normals, carry [`NO_BRANCH`]
+//! per vertex, and keep their branch index as the per-instance `_SEED`
+//! attribute instead.
 //!
 //! Materials are projected from OpenPBR to glTF's metallic-roughness core:
 //!
@@ -49,7 +52,7 @@ use exedra_gltf::{
 use exedra_math::Placement3;
 use exedra_mesh::{ExtractAttribute, TangentUv};
 use serde_json::{Value, json};
-use sylva_asset::{AssetLeaves, TreeAsset, TreeMaterial};
+use sylva_asset::{AssetInstances, TreeAsset, TreeMaterial};
 use sylva_mesh::BRANCH_LAYER;
 
 /// Encoded PNG textures for one material, as glTF reads them.
@@ -115,9 +118,10 @@ pub enum LeafExport {
     /// per-vertex branch indices.
     #[default]
     Merged,
-    /// Each leaf template once, placed per leaf with
-    /// `EXT_mesh_gpu_instancing` (which the file then requires). Leaves
-    /// shade by their template normals and carry [`NO_BRANCH`].
+    /// Each leaf template and cluster exemplar quad once, placed per copy
+    /// with `EXT_mesh_gpu_instancing` (which the file then requires).
+    /// Copies shade by their template normals, carry [`NO_BRANCH`] per
+    /// vertex, and keep their branch index as the instance's `_SEED`.
     Instanced,
 }
 
@@ -262,20 +266,34 @@ pub fn export_lod_glb_with(
             found: textures.len(),
         });
     }
-    let instanced = match (options.leaves, &lod.leaves) {
-        (LeafExport::Instanced, Some(leaves)) => Some(leaves),
-        _ => None,
+    let instancing = options.leaves == LeafExport::Instanced;
+    let instanced = |name: &str| {
+        match name {
+            "leaves" => lod.leaves.as_ref(),
+            "cards" => lod.cards.as_ref(),
+            _ => None,
+        }
+        .filter(|_| instancing)
     };
     let mut assembly = Assembly::new();
-    let mut leaves_added = false;
+    let mut added: Vec<&str> = Vec::new();
+    let mut any_instanced = false;
     // Meshes sharing a name (merged leaves come in chunks) get numbered
     // part and instance keys after the first: `leaves`, `leaves.1`, ...
     let mut seen: Vec<&str> = Vec::new();
     for mesh in &lod.meshes {
-        if instanced.is_some() && mesh.name == "leaves" {
-            if !leaves_added {
-                add_leaf_instances(&mut assembly, level, mesh.material, instanced, asset)?;
-                leaves_added = true;
+        if let Some(copies) = instanced(mesh.name) {
+            if !added.contains(&mesh.name) {
+                add_instances(
+                    &mut assembly,
+                    level,
+                    mesh.name,
+                    mesh.material,
+                    copies,
+                    asset,
+                )?;
+                added.push(mesh.name);
+                any_instanced = true;
             }
             continue;
         }
@@ -312,34 +330,37 @@ pub fn export_lod_glb_with(
         .map_err(ExportError::Compile)?;
     let mappings = [GltfAttribute::custom(BRANCH_LAYER, "_BRANCH")];
     let mut gltf = GltfExportOptions::z_up_to_y_up().with_attributes(&mappings);
-    if instanced.is_some() {
+    if any_instanced {
         gltf = gltf.with_instancing(GltfInstancing::GpuInstancing);
     }
     let resolver = Resolver { asset, textures };
     export_glb_with_materials(&assembly, &compiled, &resolver, gltf).map_err(ExportError::Gltf)
 }
 
-/// Adds one part per leaf template and one instance per leaf, all at the
-/// root with the leaf material, so glTF export batches them.
-fn add_leaf_instances(
+/// Adds one part per template and one placement set of its copies, at the
+/// root with the mesh's material, so glTF export batches each set into one
+/// instanced node. Each placement's seed is its copy's branch index.
+fn add_instances(
     assembly: &mut Assembly,
     level: usize,
+    name: &str,
     material: u32,
-    leaves: Option<&AssetLeaves>,
+    copies: &AssetInstances,
     asset: &TreeAsset,
 ) -> Result<(), ExportError> {
-    let Some(leaves) = leaves else {
-        return Ok(());
-    };
     let material = &asset.materials[material as usize];
-    let mut parts = Vec::with_capacity(leaves.templates.len());
-    for (t, template) in leaves.templates.iter().enumerate() {
+    for (t, template) in copies.templates.iter().enumerate() {
+        let members: Vec<_> = copies
+            .instances
+            .iter()
+            .filter(|c| c.template as usize == t)
+            .collect();
+        if members.is_empty() {
+            continue;
+        }
+        let key = format!("{name}{t}");
         let part = assembly
-            .add_baked_part(
-                &format!("lod{level}/leaf{t}"),
-                template.clone(),
-                &["surface"],
-            )
+            .add_baked_part(&format!("lod{level}/{key}"), template.clone(), &["surface"])
             .map_err(ExportError::Assembly)?;
         assembly
             .set_default_slot(part, "surface")
@@ -347,45 +368,29 @@ fn add_leaf_instances(
         assembly
             .set_part_material(part, "surface", &material.name)
             .map_err(ExportError::Assembly)?;
-        parts.push(part);
-    }
-    for (i, leaf) in leaves.instances.iter().enumerate() {
-        let q = leaf.rotation;
-        let (x, y, z, w) = (
-            f64::from(q.x),
-            f64::from(q.y),
-            f64::from(q.z),
-            f64::from(q.w),
-        );
-        let s = f64::from(leaf.scale);
-        let p = leaf.position;
-        let rows = [
-            [
-                s * (1.0 - 2.0 * (y * y + z * z)),
-                s * 2.0 * (x * y - w * z),
-                s * 2.0 * (x * z + w * y),
-                f64::from(p.x),
-            ],
-            [
-                s * 2.0 * (x * y + w * z),
-                s * (1.0 - 2.0 * (x * x + z * z)),
-                s * 2.0 * (y * z - w * x),
-                f64::from(p.y),
-            ],
-            [
-                s * 2.0 * (x * z - w * y),
-                s * 2.0 * (y * z + w * x),
-                s * (1.0 - 2.0 * (x * x + y * y)),
-                f64::from(p.z),
-            ],
-        ];
+        let placements = members
+            .iter()
+            .map(|c| {
+                let m = c.transform.matrix3;
+                let p = c.transform.translation;
+                let row = |i: usize| {
+                    [
+                        f64::from(m.x_axis[i]),
+                        f64::from(m.y_axis[i]),
+                        f64::from(m.z_axis[i]),
+                        f64::from(p[i]),
+                    ]
+                };
+                Placement3 {
+                    rows: [row(0), row(1), row(2)],
+                }
+            })
+            .collect();
+        let set = assembly
+            .add_placement_set(None, &key, part, placements)
+            .map_err(ExportError::Assembly)?;
         assembly
-            .add_instance(
-                None,
-                &format!("leaf{i}"),
-                parts[leaf.template as usize],
-                Placement3 { rows },
-            )
+            .set_placement_seeds(set, members.iter().map(|c| u64::from(c.branch)).collect())
             .map_err(ExportError::Assembly)?;
     }
     Ok(())

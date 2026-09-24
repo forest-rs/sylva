@@ -42,7 +42,9 @@ use alloc::vec::Vec;
 use core::fmt;
 
 pub use bake::{Atlas, AtlasSettings, CardMaterials, bake_clusters, bake_impostor};
-pub use clusters::{AtlasLayout, ClusterCard, ClusterCards, ClusterVariant, Clusters};
+pub use clusters::{
+    AtlasLayout, ClusterCard, ClusterCards, ClusterVariant, Clusters, push_unit_quad,
+};
 pub use impostor::{
     Impostor, ImpostorLayout, ImpostorPolicy, hemi_octahedral_decode, hemi_octahedral_encode,
 };
