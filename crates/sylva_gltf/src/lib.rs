@@ -278,8 +278,8 @@ pub fn export_lod_glb_with(
     let mut assembly = Assembly::new();
     let mut added: Vec<&str> = Vec::new();
     let mut any_instanced = false;
-    // Meshes sharing a name (merged leaves come in chunks) get numbered
-    // part and instance keys after the first: `leaves`, `leaves.1`, ...
+    // Meshes sharing a name get numbered part and instance keys after the
+    // first: `leaves`, `leaves.1`, ...
     let mut seen: Vec<&str> = Vec::new();
     for mesh in &lod.meshes {
         if let Some(copies) = instanced(mesh.name) {

@@ -7,13 +7,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::f32::consts::TAU;
 
-use exedra_mesh::attr;
 use exedra_mesh::attributes::{AttrKey, Domain};
-use exedra_mesh::{
-    ChangeSink, CornerId, EditSession, FaceId, HalfEdgeId, Mesh, MeshBuilder, VertexId, op,
-};
+use exedra_mesh::{ChangeSink, CornerId, EditSession, HalfEdgeId, Mesh, MeshBuilder, VertexId, op};
 use exedra_mesh_ops::junction::{
-    JunctionChart, JunctionError, JunctionOutput, JunctionParams, add_junction,
+    JunctionError, JunctionOutput, JunctionParams, JunctionSmoothing, add_junction,
 };
 use glam::Vec3;
 use sylva_skeleton::keyed::tag;
@@ -141,7 +138,7 @@ struct Layout {
 /// A builder face and one of its loop edges.
 type FaceEdge = (usize, usize);
 
-/// Open rings and bark chart of one emitted tube.
+/// Open rings of one emitted tube.
 ///
 /// Rings are named by an interior edge on them, which names the open ring
 /// through its twin.
@@ -150,12 +147,8 @@ struct TubeRings {
     /// An edge on the base ring.
     base: FaceEdge,
     /// Per opening: site, the edges on the rings below and above it, and the
-    /// lower ring's arc length. The lower edge's twin leaves the ring's
-    /// first vertex, which anchors the skin's chart.
+    /// lower ring's arc length.
     gaps: Vec<(usize, FaceEdge, FaceEdge, f32)>,
-    repeats: f32,
-    metres_per_v: f32,
-    v_offset: f32,
 }
 
 /// One ring position along a branch.
@@ -595,21 +588,25 @@ fn assemble(
         let (Some(parent), Some(child)) = (&tubes[site.parent], &tubes[site.child]) else {
             return Err(MeshError::Kernel);
         };
-        let &(_, below, above, below_s) = parent
+        let &(_, below, above, _) = parent
             .gaps
             .iter()
             .find(|gap| gap.0 == index)
             .ok_or(MeshError::Kernel)?;
         let seed = |(face, edge): FaceEdge| built.face_edge_ids[face][edge];
+        let smoothing = match params.junction {
+            Junction::Welded(weld) => core::num::NonZeroU32::new(weld.smoothing_rows),
+            Junction::Embedded(_) => None,
+        };
         let junction = JunctionParams {
             center: site.center.to_array().map(f64::from),
             rings: vec![seed(below), seed(above), seed(child.base)],
-            chart: Some(JunctionChart {
-                parent: 0,
-                u_origin: 0.0,
-                u_per_turn: f64::from(parent.repeats),
-                v_origin: f64::from(parent.v_offset + below_s / parent.metres_per_v),
-                v_per_unit: f64::from(1.0 / parent.metres_per_v),
+            // The skin continues each tube's own bark chart, so the texture
+            // runs on across every weld.
+            continue_uvs: true,
+            smoothing: smoothing.map(|rows| JunctionSmoothing {
+                rows,
+                tangents: None,
             }),
             region: None,
         };
@@ -619,10 +616,16 @@ fn assemble(
                 finish_skin(&mut edit, &skin, &slot_normals, parent_index)?;
                 report.welded_junctions += 1;
                 welds.push(u32::try_from(site.child).map_err(|_| MeshError::TooLarge)?);
-                report.skin_quads += skin.stats.bridge_quads + skin.stats.crotch_quads;
-                report.skin_triangles += skin.stats.bridge_triangles;
-                report.skin_vertices += skin.center_vertices.len() as u64;
-                report.vertices += skin.center_vertices.len() as u64;
+                // Count the skin as built: smoothing refines the coarse
+                // faces its stats describe.
+                for &face in &skin.faces {
+                    match edit.mesh().face_loop(face).count() {
+                        3 => report.skin_triangles += 1,
+                        _ => report.skin_quads += 1,
+                    }
+                }
+                report.skin_vertices += skin.skin_vertices.len() as u64;
+                report.vertices += skin.skin_vertices.len() as u64;
             }
             Err(error) => refused.push((index, error)),
         }
@@ -640,17 +643,17 @@ fn assemble(
 /// Authors normals, provenance and seams on a fresh junction skin.
 ///
 /// Ring corners take the tube's authored normal at their vertex, so shading
-/// is continuous across the weld; crotch centers take the area-weighted
-/// normal of their skin faces. Skin edges where the chart's U jumps, and
-/// where the skin meets the rings of the upper parent and the child, are
-/// tagged as seams.
+/// is continuous across the weld; new skin vertices take the area-weighted
+/// normal of their skin faces. The skin continues every tube's UVs, so its
+/// only seams are where a tube's own U seam runs on into it; those edges
+/// are tagged.
 fn finish_skin<S: ChangeSink>(
     edit: &mut EditSession<'_, S>,
     skin: &JunctionOutput,
     slot_normals: &[Vec3],
     parent: u32,
 ) -> Result<(), MeshError> {
-    let mut center_normals = vec![Vec3::ZERO; skin.center_vertices.len()];
+    let mut center_normals = vec![Vec3::ZERO; skin.skin_vertices.len()];
     let mut corners: Vec<(HalfEdgeId, VertexId)> = Vec::new();
     let mut edges: Vec<HalfEdgeId> = Vec::new();
     {
@@ -672,14 +675,14 @@ fn finish_skin<S: ChangeSink>(
             }
             for &edge in &loop_edges {
                 let vertex = mesh.to_vertex(edge).ok_or(MeshError::Kernel)?;
-                if let Some(center) = skin.center_vertices.iter().position(|&c| c == vertex) {
+                if let Some(center) = skin.skin_vertices.iter().position(|&c| c == vertex) {
                     center_normals[center] += area;
                 }
             }
         }
     }
     for (corner, vertex) in corners {
-        let normal = match skin.center_vertices.iter().position(|&c| c == vertex) {
+        let normal = match skin.skin_vertices.iter().position(|&c| c == vertex) {
             Some(center) => center_normals[center].normalize_or_zero(),
             None => slot_normals
                 .get(vertex.index() as usize)
@@ -689,40 +692,8 @@ fn finish_skin<S: ChangeSink>(
         op::set_corner_normal_override(edit, corner, Some(normal.to_array()))
             .map_err(|_| MeshError::Kernel)?;
     }
-    for &center in &skin.center_vertices {
+    for &center in &skin.skin_vertices {
         op::set_attribute(edit, BRANCH_LAYER, center, parent).map_err(|_| MeshError::Kernel)?;
-    }
-    // The chart reproduces the parent tube's UVs below the fork up to
-    // rounding; snap those corners to the tube's exact values so the weld
-    // is not a UV seam.
-    let mut snaps: Vec<(HalfEdgeId, [f32; 2])> = Vec::new();
-    {
-        let mesh = edit.mesh();
-        let layer = mesh.attrs().sparse(attr::CORNER_UV);
-        let uv = |corner: HalfEdgeId| layer.and_then(|l| l.get(corner.as_id()).copied());
-        for &edge in &edges {
-            let (Some(twin), Some(before)) = (mesh.twin(edge), mesh.prev(edge)) else {
-                continue;
-            };
-            let outer = mesh.face(twin);
-            if outer.is_none_or(|face| face == FaceId::OUTSIDE || skin.faces.contains(&face)) {
-                continue;
-            }
-            let Some(twin_before) = mesh.prev(twin) else {
-                continue;
-            };
-            for (skin_corner, tube_corner) in [(edge, twin_before), (before, twin)] {
-                if let (Some(a), Some(b)) = (uv(skin_corner), uv(tube_corner))
-                    && a != b
-                    && (a[0] - b[0]).abs().max((a[1] - b[1]).abs()) < 1e-4
-                {
-                    snaps.push((skin_corner, b));
-                }
-            }
-        }
-    }
-    for (corner, value) in snaps {
-        op::set_corner_uv(edit, corner, value).map_err(|_| MeshError::Kernel)?;
     }
     for edge in edges {
         if edit.mesh().is_uv_discontinuous(edge) == Some(true) {
@@ -1145,9 +1116,6 @@ fn emit_tube(
                 )
             })
             .collect(),
-        repeats,
-        metres_per_v,
-        v_offset,
     })
 }
 

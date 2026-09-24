@@ -11,7 +11,7 @@ use sylva_mesh::{BRANCH_LAYER, MeshParams};
 use sylva_skeleton::passes::{FrameParams, PipeModel, compute_frames, pipe_model_radii};
 use sylva_skeleton::{Attachment, Branch, BranchId, Frame, Node, Site, Skeleton};
 
-use crate::{LEAVES_PER_MESH, MaterialRole, TreeMaterials, build_asset};
+use crate::{MaterialRole, TreeMaterials, build_asset};
 
 /// A trunk with a fan of side branches, each carrying twigs full of leaf
 /// sites.
@@ -134,11 +134,7 @@ fn every_level_becomes_meshes_with_materials_and_provenance() {
 
     let names =
         |level: usize| -> Vec<&str> { asset.lods[level].meshes.iter().map(|m| m.name).collect() };
-    let chunks = chain.levels[0].leaves.len().div_ceil(LEAVES_PER_MESH);
-    assert!(chunks > 1, "the fixture spans several leaf meshes");
-    assert_eq!(names(0)[0], "bark");
-    assert_eq!(names(0).len(), 1 + chunks);
-    assert!(names(0)[1..].iter().all(|n| *n == "leaves"));
+    assert_eq!(names(0), ["bark", "leaves"], "one merged leaf mesh");
     assert_eq!(names(2), ["bark", "cards"], "clustered leaves become cards");
     assert_eq!(names(4), ["cards"]);
     let leaf_faces: usize = asset.lods[0].meshes[1..]

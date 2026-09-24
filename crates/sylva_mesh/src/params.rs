@@ -151,8 +151,8 @@ impl Default for Collar {
 /// Which forks [`Junction::Welded`] welds, and how far the skin reaches.
 ///
 /// Reaches are multiples of the parent's radius at the attachment. The skin
-/// is piecewise flat, so shorter reaches look smoother, but the three open
-/// ends must stay clear of each other: acute forks need longer reaches, and
+/// continues each tube's bark chart and, by default, is refined and faired
+/// smooth; the three open ends must stay clear of each other: acute forks need longer reaches, and
 /// forks that cannot be cleared fall back to the embedded collar. The
 /// defaults weld most major forks of the oak preset (17 of 21 over two
 /// seeds), with the skin spanning three parent radii on each side.
@@ -170,6 +170,10 @@ pub struct Weld {
     pub parent_reach: f32,
     /// Distance from the fork to the child's first ring, along the child.
     pub child_reach: f32,
+    /// Rows the skin is refined into between the rings and faired smooth
+    /// (`exedra_mesh_ops::junction::JunctionSmoothing`); 0 keeps the
+    /// coarse, piecewise flat skin.
+    pub smoothing_rows: u32,
 }
 
 impl Default for Weld {
@@ -180,6 +184,7 @@ impl Default for Weld {
             min_radius: 0.04,
             parent_reach: 3.0,
             child_reach: 3.0,
+            smoothing_rows: 4,
         }
     }
 }
