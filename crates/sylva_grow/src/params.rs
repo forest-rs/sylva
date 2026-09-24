@@ -42,6 +42,9 @@ pub struct Trunk {
     pub lean: f32,
     /// Centerline shaping.
     pub shape: Shape,
+    /// Optional foliage sites along the trunk itself. A conifer's leader is
+    /// a shoot like any other and carries needles over its young top.
+    pub sites: Option<Sites>,
 }
 
 impl Default for Trunk {
@@ -51,6 +54,7 @@ impl Default for Trunk {
             length_jitter: 0.0,
             lean: 0.0,
             shape: Shape::default(),
+            sites: None,
         }
     }
 }

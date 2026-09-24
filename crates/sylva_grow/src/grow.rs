@@ -506,11 +506,9 @@ fn place_sites(
 ) -> Result<usize, GrowError> {
     let mut sites = Vec::new();
     for branch in skeleton.branches() {
-        let Some(level) = (branch.order as usize)
-            .checked_sub(1)
-            .and_then(|index| hierarchy.levels.get(index))
-        else {
-            continue;
+        let wanted = match (branch.order as usize).checked_sub(1) {
+            None => hierarchy.trunk.sites,
+            Some(index) => hierarchy.levels.get(index).and_then(|level| level.sites),
         };
         let Some(Sites {
             per_metre,
@@ -519,7 +517,7 @@ fn place_sites(
             angle,
             tip_cluster,
             cluster_span,
-        }) = level.sites
+        }) = wanted
         else {
             continue;
         };

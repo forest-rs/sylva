@@ -23,6 +23,7 @@ fn fixture() -> Hierarchy {
                 gnarl_wavelength: 2.0,
                 ..Shape::default()
             },
+            sites: None,
         },
         levels: vec![
             Level {
@@ -447,4 +448,25 @@ fn lumpy_envelopes_stay_within_their_bulge_and_vary_the_trim() {
     }
     let nodes = |g: &crate::Grown| g.report.nodes;
     assert_ne!(nodes(&plain), nodes(&grown), "lumps change the trim");
+}
+
+#[test]
+fn trunk_sites_clothe_the_leader_top() {
+    let mut h = fixture();
+    h.trunk.sites = Some(Sites {
+        per_metre: 10.0,
+        span: [0.8, 1.0],
+        tip_cluster: 4,
+        ..Sites::default()
+    });
+    let grown = grow(&h, 3).expect("grow");
+    let trunk = grown.skeleton.branches()[0].id;
+    let on_trunk: Vec<_> = grown
+        .skeleton
+        .sites()
+        .iter()
+        .filter(|s| s.branch == trunk)
+        .collect();
+    assert!(on_trunk.len() >= 4, "{} trunk sites", on_trunk.len());
+    assert!(on_trunk.iter().all(|s| s.t >= 0.75), "sites on the top");
 }

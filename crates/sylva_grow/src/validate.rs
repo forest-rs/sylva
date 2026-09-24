@@ -3,7 +3,7 @@
 
 //! Parameter checks run before growth.
 
-use crate::{Arrangement, Count, GrowError, Hierarchy, Shape};
+use crate::{Arrangement, Count, GrowError, Hierarchy, Shape, Sites};
 
 fn invalid(level: Option<usize>, name: &'static str) -> GrowError {
     GrowError::InvalidParameter { level, name }
@@ -74,6 +74,9 @@ pub(crate) fn check(h: &Hierarchy) -> Result<(), GrowError> {
         return Err(invalid(None, "trunk.lean"));
     }
     shape(None, &trunk.shape)?;
+    if trunk.sites.is_some_and(|s| !sites_ok(s)) {
+        return Err(invalid(None, "trunk.sites"));
+    }
     for (index, level) in h.levels.iter().enumerate() {
         let at = Some(index);
         match level.count {
@@ -122,15 +125,7 @@ pub(crate) fn check(h: &Hierarchy) -> Result<(), GrowError> {
             return Err(invalid(at, "length"));
         }
         shape(at, &level.shape)?;
-        if let Some(sites) = level.sites
-            && !(sites.per_metre.is_finite()
-                && sites.per_metre >= 0.0
-                && span(sites.span)
-                && sites.angle > 0.0
-                && sites.angle < core::f32::consts::PI
-                && sites.tip_cluster <= 1024
-                && (0.0..=1.0).contains(&sites.cluster_span))
-        {
+        if level.sites.is_some_and(|s| !sites_ok(s)) {
             return Err(invalid(at, "sites"));
         }
     }
@@ -155,4 +150,14 @@ pub(crate) fn check(h: &Hierarchy) -> Result<(), GrowError> {
         }
     }
     Ok(())
+}
+
+fn sites_ok(sites: Sites) -> bool {
+    sites.per_metre.is_finite()
+        && sites.per_metre >= 0.0
+        && span(sites.span)
+        && sites.angle > 0.0
+        && sites.angle < core::f32::consts::PI
+        && sites.tip_cluster <= 1024
+        && (0.0..=1.0).contains(&sites.cluster_span)
 }
