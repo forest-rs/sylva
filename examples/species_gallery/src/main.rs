@@ -18,6 +18,17 @@
 //! blender --background --python examples/species_gallery/tools/render_glb.py -- "$d" --instanced
 //! ```
 //!
+//! The standard review render is the Cycles beauty scene, a tree in a
+//! meadow under a low sun:
+//!
+//! ```sh
+//! cargo run --release -p species_gallery -- --glb-only
+//! for shot in hero backlit grove bark; do
+//!   blender --background --python examples/species_gallery/tools/render_beauty.py -- \
+//!     "$shot" ".local/gallery/beauty/oak-$shot.png"
+//! done
+//! ```
+//!
 //! Outputs default to `.local/gallery/`, which is git-ignored and survives
 //! `cargo clean`; `target/` holds build artifacts only.
 //!
@@ -25,7 +36,10 @@
 //! chain, card bakes and glTF export, for quick crown iteration. `--welded`
 //! also meshes the bark with major forks welded, as `bark-welded.obj` with
 //! the forks in `forks.json`; `render_forks.py` compares them close up
-//! against the embedded bark.
+//! against the embedded bark. Seed 1 writes its LOD meshes, baked atlases and
+//! GLBs. `--glb-only` writes, for every seed, just the GLBs with their baked
+//! atlases (and a short `stats.json`), which is what `render_beauty.py`
+//! reads: the fast loop for beauty review.
 //!
 //! `bark.obj` carries positions, bark UVs and the authored normals;
 //! `render_bark.py` shows it with a UV grid so seams and texel density are
@@ -72,6 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut seeds = SEEDS.to_vec();
     let mut tree_only = false;
     let mut welded = false;
+    let mut glb_only = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -81,6 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--tree-only" => tree_only = true,
             "--welded" => welded = true,
+            "--glb-only" => glb_only = true,
             _ => out_dir = PathBuf::from(arg),
         }
     }
@@ -92,8 +108,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let elapsed = started.elapsed();
         let dir = out_dir.join(format!("{}-seed{seed}", species.name));
         std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("skeleton.json"), skeleton_json(&grown.skeleton)?)?;
-        std::fs::write(dir.join("skeleton.obj"), skeleton_obj(&grown.skeleton)?)?;
+        if !glb_only {
+            std::fs::write(dir.join("skeleton.json"), skeleton_json(&grown.skeleton)?)?;
+            std::fs::write(dir.join("skeleton.obj"), skeleton_obj(&grown.skeleton)?)?;
+        }
         let meshed = Instant::now();
         let bark = mesh_skeleton(&grown.skeleton, &MeshParams::default())?;
         let (tri, _) = bark.mesh.to_trimesh(&ExtractParams {
@@ -102,7 +120,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..ExtractParams::default()
         });
         let mesh_elapsed = meshed.elapsed();
-        std::fs::write(dir.join("bark.obj"), bark_obj(&tri)?)?;
+        if !glb_only {
+            std::fs::write(dir.join("bark.obj"), bark_obj(&tri)?)?;
+        }
         if welded {
             write_welded(&dir, &grown.skeleton)?;
         }
@@ -112,8 +132,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let placed = Instant::now();
                 let foliage = place_leaves(&grown.skeleton, params)?;
                 let place_us = placed.elapsed().as_micros();
-                std::fs::write(dir.join("leaves.obj"), leaves_obj(&foliage)?)?;
-                write_mask(&dir.join("leaf-mask.png"), &foliage)?;
+                if !glb_only {
+                    std::fs::write(dir.join("leaves.obj"), leaves_obj(&foliage)?)?;
+                    write_mask(&dir.join("leaf-mask.png"), &foliage)?;
+                }
                 if tree_only {
                     println!(
                         "{}-seed{seed}: {:?} branches by level, {} leaves",
@@ -121,7 +143,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                     continue;
                 }
-                let lods = write_lods(&dir, seed, &grown.skeleton, &foliage, &tri, &textures)?;
+                let export = if glb_only {
+                    Export::Glb
+                } else if seed == 1 {
+                    Export::All
+                } else {
+                    Export::None
+                };
+                let lods = write_lods(&dir, export, &grown.skeleton, &foliage, &tri, &textures)?;
+                if glb_only {
+                    let r = &grown.report;
+                    std::fs::write(
+                        dir.join("stats.json"),
+                        format!(
+                            "{{\"seed\":{seed},\"branches_by_level\":{:?},\"max_radius_m\":{}{lods}}}\n",
+                            r.branches_by_level, r.pipe.max_radius
+                        ),
+                    )?;
+                    continue;
+                }
                 let card = card::bake_twig_card(
                     &dir.join("twig-card"),
                     &grown.skeleton,
@@ -315,14 +355,27 @@ fn instances_obj(
     Ok(out)
 }
 
-/// Builds the LOD chain and returns a stats fragment; seed 1 also writes
-/// each level as `lods/lod<n>-bark.obj` and `lods/lod<n>-leaves.obj`, its
-/// cluster cards as `lods/lod<n>-cards.obj` with their baked atlas in
-/// `lods/lod<n>-cards/`, and the impostor as `lods/impostor.obj` with
-/// `lods/impostor/`.
+/// What [`write_lods`] writes beyond its stats.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Export {
+    /// Stats only.
+    None,
+    /// The baked atlases and GLBs.
+    Glb,
+    /// Everything: also the review OBJs and the octahedral impostor.
+    All,
+}
+
+/// Builds the LOD chain and returns a stats fragment.
+///
+/// [`Export::Glb`] also bakes each level's cluster cards into
+/// `lods/lod<n>-cards/` and the impostor into `lods/impostor/`, and writes
+/// the GLBs. [`Export::All`] adds each level as `lods/lod<n>-bark.obj` and
+/// `lods/lod<n>-leaves.obj`, the cards as `lods/lod<n>-cards.obj`, and the
+/// octahedral impostor.
 fn write_lods(
     dir: &std::path::Path,
-    seed: u64,
+    export: Export,
     skeleton: &sylva_skeleton::Skeleton,
     foliage: &Foliage,
     bark: &TriMesh,
@@ -365,7 +418,7 @@ fn write_lods(
             r.card_triangles,
             r.triangles()
         ));
-        if seed == 1
+        if export != Export::None
             && let Some(clusters) = &lod.clusters
         {
             let baked = Instant::now();
@@ -389,7 +442,7 @@ fn write_lods(
                 bark_obj(&clusters.geometry())?,
             )?;
         }
-        if seed == 1 {
+        if export == Export::All {
             std::fs::create_dir_all(&out)?;
             let (tri, _) = lod.bark.mesh.to_trimesh(&ExtractParams {
                 normals: NormalsSource::CustomOnly,
@@ -403,7 +456,7 @@ fn write_lods(
             )?;
         }
     }
-    if seed == 1
+    if export != Export::None
         && let Some(impostor) = &chain.impostor
     {
         let baked = Instant::now();
@@ -424,7 +477,8 @@ fn write_lods(
         );
         write_atlas(&out.join("impostor"), &atlas)?;
         std::fs::write(out.join("impostor.obj"), bark_obj(&impostor.geometry())?)?;
-
+    }
+    if export == Export::All && chain.impostor.is_some() {
         // An octahedral impostor for review beside the crossed one: 8 x 8
         // frames over the upper hemisphere.
         let octahedral = Impostor::fit(
@@ -461,7 +515,7 @@ fn write_lods(
             ),
         )?;
     }
-    if seed == 1 {
+    if export != Export::None {
         write_glbs(dir, skeleton, foliage, &chain)?;
     }
     Ok(format!(
