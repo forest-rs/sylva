@@ -17,51 +17,52 @@ Species(
             shape: (gnarl: 0.05, gnarl_wavelength: 3.0, up: 0.03),
         ),
         levels: [
-            // Scaffold limbs: heavy, staggered up the stem and overlapping in
-            // height. Each leaves steeply and arches out, so limbs fill the
-            // dome together instead of stacking as level layers with sky
-            // between them.
+            // Scaffold limbs: few and massive, the lowest long and near
+            // level, the upper climbing; each is sinuous, with an elbow at
+            // every few metres of growth. The secondaries on them climb, so
+            // level limbs still fill the crown above them instead of
+            // stacking as layers with sky between.
             (
-                count: Range(min: 8, max: 11),
-                span: (0.3, 0.95),
+                count: Range(min: 5, max: 7),
+                span: (0.35, 0.95),
                 arrangement: Spiral(divergence: 2.39996),
                 roll_jitter: 0.45,
                 position_jitter: 0.8,
-                angle: [(0.0, 1.1), (0.5, 0.85), (1.0, 0.55)],
-                angle_jitter: 0.25,
-                length: [(0.0, 1.05), (0.5, 0.95), (1.0, 0.8)],
+                angle: [(0.0, 1.4), (0.5, 1.05), (1.0, 0.6)],
+                angle_jitter: 0.2,
+                length: [(0.0, 1.25), (0.5, 1.05), (1.0, 0.8)],
                 length_jitter: 0.2,
-                balance: 0.8,
+                balance: 1.0,
                 // Crooked scaffold: broad waves plus irregular elbows.
                 shape: (
-                    curve: -0.15,
-                    curve_back: -0.3,
-                    gnarl: 0.22,
-                    gnarl_wavelength: 2.2,
+                    curve: 0.1,
+                    curve_back: -0.25,
+                    gnarl: 0.2,
+                    gnarl_wavelength: 2.5,
                     light: 0.05,
-                    sag: 0.06,
+                    sag: 0.05,
                     up: 0.0,
-                    kink: 0.22,
-                    kink_interval: 1.1,
-                    kink_jitter: 0.5,
+                    kink: 0.4,
+                    kink_interval: 1.4,
+                    kink_jitter: 0.6,
                 ),
             ),
             // Secondary branches along the limbs.
             (
-                count: PerMetre(4.5),
-                span: (0.15, 1.0),
+                count: PerMetre(5.0),
+                span: (0.12, 1.0),
                 arrangement: Spiral(divergence: 2.39996),
                 roll_jitter: 0.4,
                 position_jitter: 0.8,
                 angle: [(0.0, 0.95), (1.0, 0.75)],
-                angle_jitter: 0.2,
-                length: [(0.0, 0.5), (0.6, 0.45), (1.0, 0.35)],
+                angle_jitter: 0.35,
+                length: [(0.0, 0.5), (0.6, 0.42), (1.0, 0.3)],
                 length_jitter: 0.25,
                 shape: (
                     curve: 0.25,
                     gnarl: 0.3,
                     gnarl_wavelength: 0.8,
-                    up: 0.12,
+                    up: 0.15,
                     sag: 0.07,
                     kink: 0.3,
                     kink_interval: 0.45,
@@ -112,20 +113,21 @@ Species(
                 )),
             ),
         ],
-        // A broad dome, wider than tall, skirted low. Scaffold limbs are
+        // A broad, irregular crown, wider than tall, skirted low, with
+        // knobbly bulges. Scaffold limbs are
         // trimmed too, so a drooping limb tip cannot trail out below the
         // crown.
         envelope: Some((
             base: 1.8,
-            height: 14.0,
-            radius: 11.0,
+            height: 13.0,
+            radius: 12.5,
             profile: [(0.0, 0.7), (0.2, 0.95), (0.45, 1.0), (0.75, 0.85), (1.0, 0.4)],
             from_level: 0,
             min_fraction: 0.3,
             // Bulges and dips a few metres across, so trimmed branches end
             // on a cloud-like surface instead of a clipped hedge.
-            lumps: 0.3,
-            lump_size: 3.5,
+            lumps: 0.35,
+            lump_size: 3.0,
         )),
         // Twig tips are 4 mm; the skeleton stops at twigs, so each metre of
         // centerline also carries the flow of the unmodeled shoots on it.
