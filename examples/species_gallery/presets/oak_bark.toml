@@ -15,7 +15,7 @@
 # mottling keep dapple's frequencies, so they vary over a metre. Heights are
 # in [0, 1]; 1 means 50 mm of relief, so normals and occlusion scale by 0.05
 # (metres of relief per metre of tile) and the occlusion radius is 40 mm.
-version = 1
+version = 2
 
 # Plates stretched along y, their sizes varied by a broad warp that compresses
 # some columns and widens others. Border distance is in cell units.

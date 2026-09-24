@@ -9,6 +9,7 @@ use alloc::vec::Vec;
 use dapple_encode::{Image, MaterialMaps};
 use dapple_field::program::Fingerprint;
 use dapple_graph::{RasterData, Recipe, RecipeError};
+use dapple_raster::typed::Storage;
 
 use crate::TextureError;
 
@@ -71,10 +72,16 @@ pub fn bark(recipe: &Recipe) -> Result<BarkSet, TextureError> {
             .map(|label| {
                 let node = nodes.get(label).ok_or_else(wrong)?;
                 let value = graph.raster_value(*node).ok_or_else(wrong)?;
-                Ok(match &value.data {
-                    RasterData::Scalar(r) => Image::from(r),
-                    RasterData::Vector3(r) => Image::from(r),
-                })
+                match &value.data {
+                    RasterData::Scalar(r) => Ok(Image::from(r)),
+                    RasterData::Vector3(r) => Ok(Image::from(r)),
+                    RasterData::Typed(typed) => match typed.storage() {
+                        Storage::F32(r) => Ok(Image::from(r)),
+                        Storage::F32x2(r) => Ok(Image::from(r)),
+                        Storage::F32x3(r) => Ok(Image::from(r)),
+                        Storage::U32(_) => Err(wrong()),
+                    },
+                }
             })
             .collect::<Result<_, TextureError>>()?;
         let first = sources.first().ok_or_else(wrong)?;

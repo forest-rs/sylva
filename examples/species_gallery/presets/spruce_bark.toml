@@ -8,7 +8,7 @@
 # with a red cast that weathers only a little greyer, with little lichen.
 # Fissures are the fresh, redder bark under lifted scales, not dark mortar.
 # Heights are in [0, 1]; 1 means 12 mm of relief.
-version = 1
+version = 2
 
 # Plates stretched along y, their sizes varied by a broad warp that compresses
 # some columns and widens others. Border distance is in cell units.
