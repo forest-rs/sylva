@@ -322,3 +322,30 @@ fn leaflets_cut_the_blade_into_a_midrib_and_needles() {
     let oak = LeafShape::default();
     assert_eq!(oak.tissue_at(64), vec![oak.outline_at(64)]);
 }
+
+#[test]
+fn a_whorl_rolls_blades_evenly_about_a_shared_midrib() {
+    let skeleton = twig();
+    let single = place_leaves(&skeleton, &FoliageParams::default()).expect("single");
+    let params = FoliageParams {
+        whorl: 3,
+        ..FoliageParams::default()
+    };
+    let whorled = place_leaves(&skeleton, &params).expect("whorled");
+    assert_eq!(whorled.instances.len(), 3 * single.instances.len());
+    for (one, three) in single.instances.iter().zip(whorled.instances.chunks(3)) {
+        for (k, leaf) in three.iter().enumerate() {
+            assert_eq!(leaf.site, one.site);
+            assert_eq!(leaf.position, one.position);
+            let midrib = leaf.rotation * Vec3::Y;
+            assert!(
+                midrib.distance(one.rotation * Vec3::Y) < 1e-5,
+                "shared midrib"
+            );
+            // Upper surfaces are a sixth of a turn apart.
+            let a = (three[0].rotation * Vec3::Z).dot(leaf.rotation * Vec3::Z);
+            let expected = libm::cosf(core::f32::consts::PI * k as f32 / 3.0);
+            assert!((a - expected).abs() < 1e-4, "blade {k}: {a} vs {expected}");
+        }
+    }
+}

@@ -58,6 +58,12 @@ pub struct FoliageParams {
     pub light: f32,
     /// Keyed roll of each blade about its midrib, in radians (±).
     pub roll_jitter: f32,
+    /// Blades per site, at least 1. A site's blades share its position and
+    /// direction and are rolled evenly about their common midrib, half a
+    /// turn apart in all: two cross, three make a six-pointed star. A
+    /// needle spray repeated this way clothes its shoot all round, as a
+    /// conifer's needles do.
+    pub whorl: u32,
     /// Seed for template variation and per-leaf choices.
     pub seed: u64,
 }
@@ -72,6 +78,7 @@ impl Default for FoliageParams {
             droop: 0.35,
             light: 0.6,
             roll_jitter: 0.5,
+            whorl: 1,
             seed: 0,
         }
     }
@@ -233,20 +240,25 @@ pub fn place_leaves(skeleton: &Skeleton, params: &FoliageParams) -> Result<Folia
             .normalize_or(side.normalize_or(Vec3::X));
         normal =
             Quat::from_axis_angle(direction, params.roll_jitter * signed(key, "roll")) * normal;
-        let across = direction.cross(normal).normalize_or(Vec3::X);
-        let normal = across.cross(direction);
-        let rotation = Quat::from_mat3(&Mat3::from_cols(across, direction, normal));
         let shape = &templates[template as usize].shape;
         let position = sample.position + direction * (sample.radius + shape.petiole * site.scale);
-        report.instanced_triangles += templates[template as usize].triangles;
-        instances.push(LeafInstance {
-            template,
-            site: site_index,
-            position,
-            rotation,
-            scale: site.scale,
-            canopy_normal: normal,
-        });
+        for k in 0..params.whorl {
+            #[expect(clippy::cast_precision_loss, reason = "whorl sizes are small")]
+            let turn = core::f32::consts::PI * k as f32 / params.whorl as f32;
+            let normal = Quat::from_axis_angle(direction, turn) * normal;
+            let across = direction.cross(normal).normalize_or(Vec3::X);
+            let normal = across.cross(direction);
+            let rotation = Quat::from_mat3(&Mat3::from_cols(across, direction, normal));
+            report.instanced_triangles += templates[template as usize].triangles;
+            instances.push(LeafInstance {
+                template,
+                site: site_index,
+                position,
+                rotation,
+                scale: site.scale,
+                canopy_normal: normal,
+            });
+        }
     }
     report.leaves = instances.len() as u64;
     if !instances.is_empty() {

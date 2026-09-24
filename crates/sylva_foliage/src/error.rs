@@ -129,6 +129,7 @@ impl FoliageParams {
         }
         check(self.droop.is_finite(), "droop")?;
         check((0.0..=1.0).contains(&self.light), "light")?;
-        check(self.roll_jitter.is_finite(), "roll_jitter")
+        check(self.roll_jitter.is_finite(), "roll_jitter")?;
+        check((1..=16).contains(&self.whorl), "whorl")
     }
 }
