@@ -30,7 +30,7 @@
             clusters: Some((3, 8, 1, 0.35)),
             junction: Welded,
             cell: 256,
-            triangles: 160000,
+            triangles: 170000,
             bytes: 20000000,
         ),
         (

@@ -36,7 +36,7 @@ Species(
                 // Crooked scaffold: broad waves plus irregular elbows.
                 shape: (
                     curve: 0.1,
-                    curve_back: -0.25,
+                    curve_back: -0.12,
                     gnarl: 0.2,
                     gnarl_wavelength: 2.5,
                     light: 0.05,
@@ -118,8 +118,8 @@ Species(
         // trimmed too, so a drooping limb tip cannot trail out below the
         // crown.
         envelope: Some((
-            base: 1.8,
-            height: 13.0,
+            base: 2.4,
+            height: 12.5,
             radius: 12.5,
             profile: [(0.0, 0.7), (0.2, 0.95), (0.45, 1.0), (0.75, 0.85), (1.0, 0.4)],
             from_level: 0,
@@ -129,6 +129,9 @@ Species(
             lumps: 0.35,
             lump_size: 3.0,
         )),
+        // Leaves crowd the outer shell; inside the crown, where the light
+        // is gone, most twigs are bare, so the great limbs show.
+        shade: Some((shell: 0.3, interior: 0.1)),
         // Twig tips are 4 mm; the skeleton stops at twigs, so each metre of
         // centerline also carries the flow of the unmodeled shoots on it.
         // The bole keeps thickening below the lowest limb.
