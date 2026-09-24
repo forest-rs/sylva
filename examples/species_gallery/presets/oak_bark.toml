@@ -4,15 +4,15 @@
 # grey plate tops, lichen and mottling.
 #
 # One tile covers 1 m of bark (`sylva_mesh::BarkMapping`'s default
-# `tile_size`). Dapple's tile holds 7 x 2 plate cells; this one holds 20 x 6,
-# so plates come out about 5 cm wide and 17 cm long, a mature oak's, and a
-# thick trunk repeats the tile only a few times around. Every plate-scale
-# frequency and warp is scaled by the same factor (about 2.86) to keep
-# dapple's shapes; weathering, lichen and mottling keep dapple's frequencies,
-# so they now vary over a metre, with softer weathering and lichen edges
-# than dapple's. Heights are in [0, 1]; 1 means 20 mm of
-# relief, so normals and occlusion scale by 0.02 (metres of relief per
-# metre of tile) and the occlusion radius is 20 mm.
+# `tile_size`). Dapple's tile holds 7 x 2 plate cells; this one holds
+# 14 x 2, so ridges come out about 7 cm wide and 50 cm long, and a stronger
+# wobble braids the furrows between them: a mature oak's long ridges that
+# split and rejoin. A thick trunk repeats the tile only a few times around.
+# Plates flatten farther in from their borders than dapple's, and colour
+# darkens over more of the slope, which opens wide, dark, V-shaped furrows. Weathering, lichen and
+# mottling keep dapple's frequencies, so they vary over a metre. Heights are
+# in [0, 1]; 1 means 30 mm of relief, so normals and occlusion scale by 0.03
+# (metres of relief per metre of tile) and the occlusion radius is 30 mm.
 version = 1
 
 # Plates stretched along y, their sizes varied by a broad warp that compresses
@@ -21,7 +21,7 @@ version = 1
 label = "cells"
 kind = "field"
 inputs = []
-op = { op = "cellular", domain = { periodic = { period = [1, 1] } }, frequency = [20.0, 6.0], jitter = 1.0, seed = 7, output = "border" }
+op = { op = "cellular", domain = { periodic = { period = [1, 1] } }, frequency = [14.0, 2.0], jitter = 1.0, seed = 7, output = "border" }
 
 [[nodes]]
 label = "stretch_x"
@@ -57,10 +57,10 @@ op = { op = "fractal", basis = "gradient", domain = { periodic = { period = [1, 
 label = "wavy"
 kind = "field"
 inputs = ["stretched", "wobble_x", "wobble_y"]
-op = { op = "warp", input = 0, dx = 1, dy = 2, amount = 0.0105 }
+op = { op = "warp", input = 0, dx = 1, dy = 2, amount = 0.016 }
 
-# Plates flatten between 0.14 and 0.32 cells in from their fissures, so fissure
-# width and plate height vary across the tile.
+# Plates flatten between 0.2 and 0.4 cells in from their fissures, so furrow
+# width and ridge height vary across the tile.
 [[nodes]]
 label = "flat_noise"
 kind = "field"
@@ -71,7 +71,7 @@ op = { op = "fractal", basis = "gradient", domain = { periodic = { period = [1, 
 label = "flat"
 kind = "field"
 inputs = ["flat_noise"]
-op = { op = "remap", input = 0, from = [-1.0, 1.0], to = [0.14, 0.32] }
+op = { op = "remap", input = 0, from = [-1.0, 1.0], to = [0.2, 0.4] }
 
 [[nodes]]
 label = "plates_flattened"
@@ -83,14 +83,14 @@ op = { op = "min", a = 0, b = 1 }
 label = "plates_primary"
 kind = "field"
 inputs = ["plates_flattened"]
-op = { op = "remap", input = 0, from = [0.0, 0.32], to = [0.0, 0.85] }
+op = { op = "remap", input = 0, from = [0.0, 0.4], to = [0.0, 0.85] }
 
 # Shallow secondary cracks split some plates, in patches.
 [[nodes]]
 label = "crack_cells"
 kind = "field"
 inputs = []
-op = { op = "cellular", domain = { periodic = { period = [1, 1] } }, frequency = [46.0, 14.0], jitter = 1.0, seed = 27, output = "border" }
+op = { op = "cellular", domain = { periodic = { period = [1, 1] } }, frequency = [30.0, 6.0], jitter = 1.0, seed = 27, output = "border" }
 
 [[nodes]]
 label = "crack_warped"
@@ -189,19 +189,19 @@ op = { op = "color", r = 0, g = 1, b = 2 }
 label = "bark_color_r"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.11 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.15 }
 
 [[nodes]]
 label = "bark_color_g"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.08 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.11 }
 
 [[nodes]]
 label = "bark_color_b"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.058 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.08 }
 
 [[nodes]]
 label = "bark_color"
@@ -213,19 +213,19 @@ op = { op = "color", r = 0, g = 1, b = 2 }
 label = "weathered_color_r"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.27 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.2 }
 
 [[nodes]]
 label = "weathered_color_g"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.24 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.18 }
 
 [[nodes]]
 label = "weathered_color_b"
 kind = "field"
 inputs = []
-op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.2 }
+op = { op = "constant", domain = { periodic = { period = [1, 1] } }, value = 0.15 }
 
 [[nodes]]
 label = "weathered_color"
@@ -263,7 +263,7 @@ op = { op = "color", r = 0, g = 1, b = 2 }
 label = "depth_raw"
 kind = "field"
 inputs = ["height"]
-op = { op = "remap", input = 0, from = [0.0, 0.5], to = [0.0, 1.0] }
+op = { op = "remap", input = 0, from = [0.0, 0.75], to = [0.0, 1.0] }
 
 [[nodes]]
 label = "depth"
@@ -457,13 +457,13 @@ height = 1024
 label = "normal_map"
 kind = "raster"
 input = "height_map"
-params = { op = "height_to_normal", scale = 0.02 }
+params = { op = "height_to_normal", scale = 0.03 }
 
 [[nodes]]
 label = "ao_map"
 kind = "raster"
 input = "height_map"
-params = { op = "ambient_occlusion", radius = 0.02, directions = 12, scale = 0.02 }
+params = { op = "ambient_occlusion", radius = 0.03, directions = 12, scale = 0.03 }
 
 [[outputs]]
 role = "base_color"
