@@ -356,6 +356,7 @@ fn cluster_and_impostor_atlases_bake_deterministically() {
     let settings = AtlasSettings {
         cell: [24, 32],
         samples: 2,
+        ..AtlasSettings::default()
     };
     let clusters = chain.levels[2].clusters.as_ref().expect("clusters");
     let atlas =

@@ -206,6 +206,53 @@ pub struct Baked {
 }
 
 impl Baked {
+    /// Rescales opacity so an alpha test at `cutoff` keeps as much of the
+    /// card as its geometry covers (Castaño, *Computing Alpha Mipmaps*).
+    ///
+    /// Thin features (needles, twigs, distant leaves) cover a fraction of
+    /// each texel they cross, so their opacity sits below a typical cutoff
+    /// and an alpha test erases them. This finds the scale `s` for which the
+    /// share of texels with `s * opacity >= cutoff` equals the mean
+    /// opacity, then stores `min(1, s * opacity)`. Opacity only grows, and
+    /// uncovered texels stay 0.
+    ///
+    /// # Panics
+    ///
+    /// Never for a baked card, whose opacity is a valid one-channel image.
+    pub fn preserve_coverage(&mut self, cutoff: f32) {
+        let values = self.opacity.values();
+        if values.is_empty() || !(cutoff > 0.0 && cutoff < 1.0) {
+            return;
+        }
+        #[expect(clippy::cast_precision_loss, reason = "a mean over texels")]
+        let n = values.len() as f32;
+        let mean = values.iter().sum::<f32>() / n;
+        #[expect(clippy::cast_precision_loss, reason = "a share of texels")]
+        let passing =
+            |scale: f32| values.iter().filter(|&&a| a * scale >= cutoff).count() as f32 / n;
+        let (mut lo, mut hi) = (1.0_f32, 1.0 / cutoff.max(1e-3) * 16.0);
+        if passing(lo) >= mean {
+            return;
+        }
+        for _ in 0..24 {
+            let mid = 0.5 * (lo + hi);
+            if passing(mid) < mean {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        let scaled: Vec<f32> = values.iter().map(|&a| (a * hi).min(1.0)).collect();
+        self.opacity = Image::new(
+            self.opacity.width(),
+            self.opacity.height(),
+            1,
+            self.opacity.edge(),
+            scaled,
+        )
+        .expect("the same shape as the baked opacity");
+    }
+
     /// The card's maps for [`dapple_encode::pack`].
     #[must_use]
     pub fn maps(&self) -> MaterialMaps {

@@ -608,6 +608,7 @@ fn write_lods(
                 &materials,
                 &AtlasSettings {
                     cell: [spec.levels[n].cell; 2],
+                    preserve_coverage: Some(0.5),
                     ..AtlasSettings::default()
                 },
             )?;
@@ -649,6 +650,7 @@ fn write_lods(
             &AtlasSettings {
                 cell: [512, 512],
                 samples: 4,
+                preserve_coverage: Some(0.5),
             },
         )?;
         println!(
@@ -679,6 +681,7 @@ fn write_lods(
             &AtlasSettings {
                 cell: [256, 256],
                 samples: 4,
+                preserve_coverage: Some(0.5),
             },
         )?;
         println!(

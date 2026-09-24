@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use alloc::vec;
+use alloc::vec::Vec;
 
 use dapple_encode::Image;
 use dapple_raster::Edge;
 use glam::{Affine3A, Vec2, Vec3};
 
-use crate::{BakeError, BakeMaterial, BakeMesh, BakeSettings, CardView, bake};
+use crate::{BakeError, BakeMaterial, BakeMesh, BakeReport, BakeSettings, Baked, CardView, bake};
 
 const QUAD: [[f32; 3]; 4] = [
     [-1.0, -1.0, 0.0],
@@ -141,5 +142,43 @@ fn bakes_are_deterministic_and_input_is_validated() {
     assert_eq!(
         bake(&[broken], &view(1.0), &SETTINGS).err(),
         Some(BakeError::Mesh { mesh: 0 })
+    );
+}
+
+#[test]
+fn preserving_coverage_keeps_thin_features_through_an_alpha_test() {
+    // A card whose features cover a third of every texel they cross: an
+    // alpha test at 0.5 would erase all of it.
+    let values: Vec<f32> = (0..64)
+        .map(|i| if i % 4 == 0 { 0.34 } else { 0.0 })
+        .collect();
+    let opacity = Image::new(8, 8, 1, Edge::Clamp, values).expect("image");
+    let blank = |channels| {
+        Image::new(8, 8, channels, Edge::Clamp, vec![0.0; 64 * channels]).expect("image")
+    };
+    let mut baked = Baked {
+        base_color: blank(3),
+        opacity,
+        normal: blank(3),
+        depth: blank(1),
+        report: BakeReport::default(),
+    };
+    let mean = 0.34 / 4.0;
+    baked.preserve_coverage(0.5);
+    let after = baked.opacity.values();
+    #[expect(clippy::cast_precision_loss, reason = "a share of 64 texels")]
+    let passing = after.iter().filter(|&&a| a >= 0.5).count() as f32 / 64.0;
+    assert!(passing > 0.0, "features survive the test");
+    assert!(
+        passing >= mean,
+        "{passing} of the card passes, {mean} is covered"
+    );
+    assert!(after.iter().all(|a| (0.0..=1.0).contains(a)));
+    assert!(
+        after
+            .iter()
+            .enumerate()
+            .all(|(i, &a)| (i % 4 == 0) || a == 0.0),
+        "uncovered texels stay clear"
     );
 }

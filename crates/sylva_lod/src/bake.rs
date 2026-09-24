@@ -29,12 +29,17 @@ pub struct CardMaterials<'a> {
 }
 
 /// Size and sampling of every atlas cell.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct AtlasSettings {
     /// Texels across and up one cell.
     pub cell: [u32; 2],
     /// Samples per texel along each axis.
     pub samples: u32,
+    /// Rescale each cell's opacity so an alpha test at this cutoff keeps
+    /// the area the geometry covers ([`Baked::preserve_coverage`]); `None`
+    /// keeps the raw covered fractions. Thin features such as needles need
+    /// it, or the test erases them.
+    pub preserve_coverage: Option<f32>,
 }
 
 impl Default for AtlasSettings {
@@ -42,6 +47,7 @@ impl Default for AtlasSettings {
         Self {
             cell: [256, 256],
             samples: 4,
+            preserve_coverage: None,
         }
     }
 }
@@ -197,7 +203,7 @@ fn bake_cell(
             material: materials.leaf,
         });
     }
-    bake(
+    let mut baked = bake(
         &meshes,
         view,
         &BakeSettings {
@@ -205,7 +211,11 @@ fn bake_cell(
             samples: settings.samples,
         },
     )
-    .map_err(|_| LodError::Bake("a card bake failed"))
+    .map_err(|_| LodError::Bake("a card bake failed"))?;
+    if let Some(cutoff) = settings.preserve_coverage {
+        baked.preserve_coverage(cutoff);
+    }
+    Ok(baked)
 }
 
 /// Copies equally sized cells into one atlas per map.
