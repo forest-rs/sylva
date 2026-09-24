@@ -178,15 +178,17 @@ impl Default for Weld {
 /// Buttressed flare at the base of each root stem.
 ///
 /// The radius grows by `flare` at the base and decays exponentially with
-/// height; `lobes` angular buttresses of relative depth `lobe_depth` ride on
-/// the flare.
+/// height; `lobes` buttresses of relative depth `lobe_depth` ride on the
+/// flare. Buttresses sit under the stem's heaviest children, where the
+/// crown's load runs into the roots, so each tree's are irregular; lobes the
+/// children do not claim fill the widest gaps, weaker.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct RootFlare {
     /// Decay height, in metres.
     pub height: f32,
     /// Extra radius at the base, as a multiple of the stem radius.
     pub flare: f32,
-    /// Number of buttress lobes; 0 for a round flare.
+    /// Number of buttress lobes, at most 12; 0 for a round flare.
     pub lobes: u32,
     /// Lobe depth relative to the flared radius, in `[0, 1)`.
     pub lobe_depth: f32,
@@ -197,11 +199,11 @@ pub struct RootFlare {
 impl Default for RootFlare {
     fn default() -> Self {
         Self {
-            height: 0.6,
-            flare: 0.6,
-            lobes: 5,
-            lobe_depth: 0.25,
-            rings: 5,
+            height: 0.9,
+            flare: 0.9,
+            lobes: 6,
+            lobe_depth: 0.45,
+            rings: 7,
         }
     }
 }

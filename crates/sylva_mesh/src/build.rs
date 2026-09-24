@@ -175,28 +175,142 @@ enum Profile {
         length: f32,
         rings: u32,
         flare: f32,
+        /// Largest flared radius: a little inside the parent, so a child
+        /// nearly as thick as its parent cannot flare out through the far
+        /// side of it as a visible sleeve.
+        cap: f32,
         normal_blend: f32,
         parent_point: Vec3,
         parent_tangent: Vec3,
     },
-    Flare(RootFlare),
+    Flare {
+        flare: RootFlare,
+        lobes: Lobes,
+    },
+}
+
+/// Most buttress lobes one root flare carries.
+const MAX_LOBES: usize = 12;
+
+/// Buttress ridges around a root stem: ring angle and weight in `(0, 1]`.
+#[derive(Copy, Clone, Debug)]
+struct Lobes {
+    count: usize,
+    at: [(f32, f32); MAX_LOBES],
+}
+
+impl Lobes {
+    /// Places up to `flare.lobes` ridges under the stem's heaviest children,
+    /// where the crown's load runs into the roots, so every tree gets its own
+    /// irregular buttresses. Lobes the children do not claim fill the widest
+    /// remaining gaps at a lower weight; a stem without children gets evenly
+    /// spaced, equal lobes.
+    fn place(skeleton: &Skeleton, branch: &Branch, flare: &RootFlare) -> Self {
+        let wanted = (flare.lobes as usize).min(MAX_LOBES);
+        let mut lobes = Self {
+            count: 0,
+            at: [(0.0, 0.0); MAX_LOBES],
+        };
+        if wanted == 0 {
+            return lobes;
+        }
+        let base = branch.nodes[0].frame;
+        let mut children: Vec<(f32, f32)> = skeleton
+            .index_of(branch.id)
+            .map(|index| skeleton.child_indices(index))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|&child| {
+                let child = &skeleton.branches()[child];
+                let (first, second) = (child.nodes.first()?, child.nodes.get(1)?);
+                let d = second.position - first.position;
+                let (x, y) = (d.dot(base.normal), d.dot(base.binormal()));
+                (x * x + y * y > 1e-12).then(|| (libm::atan2f(y, x), first.radius))
+            })
+            .collect();
+        children.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let heaviest = children.first().map_or(1.0, |c| c.1.max(1e-6));
+        for &(theta, radius) in children.iter().take(wanted) {
+            lobes.push(theta, libm::sqrtf(radius / heaviest).clamp(0.5, 1.0));
+        }
+        if lobes.count == 0 {
+            #[expect(clippy::cast_precision_loss, reason = "lobe counts are small")]
+            for k in 0..wanted {
+                lobes.push(TAU * k as f32 / wanted as f32, 1.0);
+            }
+        }
+        while lobes.count < wanted {
+            let mut angles: Vec<f32> = lobes.at[..lobes.count].iter().map(|l| wrap(l.0)).collect();
+            angles.sort_by(f32::total_cmp);
+            let (gap, at) = angles
+                .iter()
+                .enumerate()
+                .map(|(i, &a)| {
+                    let next = angles.get(i + 1).copied().unwrap_or(angles[0] + TAU);
+                    (next - a, a + 0.5 * (next - a))
+                })
+                .fold((0.0, 0.0), |best, g| if g.0 > best.0 { g } else { best });
+            if gap <= 0.0 {
+                break;
+            }
+            lobes.push(at, 0.6);
+        }
+        lobes
+    }
+
+    fn push(&mut self, theta: f32, weight: f32) {
+        self.at[self.count] = (theta, weight);
+        self.count += 1;
+    }
+
+    /// Ridge height in `[0, 1]` at ring angle `theta`.
+    fn ridge(&self, theta: f32) -> f32 {
+        // Ridges are narrow enough that neighbours meet in a deep valley.
+        #[expect(clippy::cast_precision_loss, reason = "lobe counts are small")]
+        let sigma = 0.5 * core::f32::consts::PI / self.count.max(1) as f32;
+        self.at[..self.count]
+            .iter()
+            .map(|&(at, weight)| {
+                let d = wrap(theta - at + core::f32::consts::PI) - core::f32::consts::PI;
+                weight * libm::expf(-(d / sigma) * (d / sigma))
+            })
+            .fold(0.0, f32::max)
+    }
 }
 
 impl Profile {
+    /// Radius at arc length `s` and ring angle `theta` of a station whose
+    /// plain radius is `radius`.
+    fn radius(&self, radius: f32, s: f32, theta: f32) -> f32 {
+        let scaled = radius * self.scale(s, theta);
+        match *self {
+            // The cap only limits the flare; it never thins the tube itself.
+            Self::Collar { cap, .. } => scaled.min(cap.max(radius)),
+            _ => scaled,
+        }
+    }
+
     /// Radius multiplier at arc length `s` and ring angle `theta`.
     fn scale(&self, s: f32, theta: f32) -> f32 {
         match *self {
             Self::Plain => 1.0,
             Self::Collar { length, flare, .. } => 1.0 + (flare - 1.0) * fade(s, length),
-            Self::Flare(f) => {
+            Self::Flare { flare: f, lobes } => {
                 let decay = libm::expf(-s / f.height.max(1e-4));
-                #[expect(clippy::cast_precision_loss, reason = "lobe counts are small integers")]
-                let lobes = f.lobes as f32;
-                let lobe = 1.0 - f.lobe_depth * 0.5 * (1.0 - libm::cosf(lobes * theta));
-                1.0 + f.flare * decay * if f.lobes == 0 { 1.0 } else { lobe }
+                let lobe = if lobes.count == 0 {
+                    1.0
+                } else {
+                    1.0 - f.lobe_depth * (1.0 - lobes.ridge(theta))
+                };
+                1.0 + f.flare * decay * lobe
             }
         }
     }
+}
+
+/// `angle` wrapped into `[0, TAU)`.
+fn wrap(angle: f32) -> f32 {
+    angle - TAU * libm::floorf(angle / TAU)
 }
 
 /// 1 at `s = 0`, easing to 0 at `s = length`.
@@ -596,12 +710,18 @@ fn profile_for(skeleton: &Skeleton, branch: &Branch, params: &MeshParams, welded
                 length: collar.length * sample.radius.max(MIN_RADIUS),
                 rings: collar.rings,
                 flare: collar.flare,
+                cap: 0.97 * sample.radius,
                 normal_blend: collar.normal_blend,
                 parent_point: sample.position,
                 parent_tangent: sample.frame.tangent,
             }
         }
-        None => params.root_flare.map_or(Profile::Plain, Profile::Flare),
+        None => params
+            .root_flare
+            .map_or(Profile::Plain, |flare| Profile::Flare {
+                flare,
+                lobes: Lobes::place(skeleton, branch, &flare),
+            }),
     }
 }
 
@@ -639,7 +759,7 @@ fn stations(
     let (extra, extent) = match *profile {
         Profile::Plain => (0, 0.0),
         Profile::Collar { length, rings, .. } => (rings, length),
-        Profile::Flare(f) => (f.rings, 3.0 * f.height),
+        Profile::Flare { flare, .. } => (flare.rings, 3.0 * flare.height),
     };
     let extent = extent.min(0.5 * total);
     for k in 1..=extra {
@@ -666,7 +786,7 @@ fn stations(
     match *profile {
         Profile::Plain => {}
         Profile::Collar { .. } => report.collar_rings += (added_before - 1) as u64,
-        Profile::Flare(_) => report.flare_rings += (added_before - 1) as u64,
+        Profile::Flare { .. } => report.flare_rings += (added_before - 1) as u64,
     }
     let tolerance = 1e-5 * total.max(1.0);
     for &(_, from, to) in &layout.gaps {
@@ -725,7 +845,7 @@ fn ring_point(
 ) -> (Vec3, Vec3) {
     let frame = station.frame;
     let radial = frame.normal * libm::cosf(theta) + frame.binormal() * libm::sinf(theta);
-    let radius_at = |st: &Station| st.radius * profile.scale(st.s, theta);
+    let radius_at = |st: &Station| profile.radius(st.radius, st.s, theta);
     let r = radius_at(station);
     let position = station.position + radial * r;
     // Slope of the modulated radius along the centerline tilts the normal

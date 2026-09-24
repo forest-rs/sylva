@@ -245,6 +245,44 @@ fn embedded_children_flare_a_collar_blend_normals_and_record_provenance() {
 }
 
 #[test]
+fn collars_stay_inside_a_parent_barely_thicker_than_the_child() {
+    let mut skeleton = tree(true, 0.5);
+    // With e = 3 the trunk is only 2^(1/3) times the child, so a full
+    // collar flare would push the child's base ring out through the trunk.
+    pipe_model_radii(
+        &mut skeleton,
+        &PipeModel {
+            tip_radius: 0.05,
+            exponent: 3.0,
+            ..PipeModel::default()
+        },
+    )
+    .expect("radii");
+    let collar = Collar::default();
+    let params = MeshParams {
+        junction: Junction::Embedded(collar),
+        ..plain()
+    };
+    let child = skeleton.branches()[1].nodes[0].radius;
+    let parent = skeleton.branches()[0].sample(0.5).radius;
+    assert!(child * collar.flare > parent, "the case needs capping");
+    let tri = extract(&mesh_skeleton(&skeleton, &params).expect("mesh").mesh);
+    let Some(AttributeBuffer::U32(branches)) = tri.attribute(BRANCH_LAYER) else {
+        panic!("branch stream");
+    };
+    let mut base_ring = 0;
+    for (p, &b) in tri.positions.iter().zip(branches) {
+        if b == 1 && p[0] == 0.0 {
+            base_ring += 1;
+            let r = (Vec3::from_array(*p) - Vec3::new(0.0, 0.0, 2.0)).length();
+            assert!(r <= 0.97 * parent + 1e-5, "{r} vs parent {parent}");
+            assert!(r >= child - 1e-5, "the cap never thins the child: {r}");
+        }
+    }
+    assert!(base_ring > 0, "child base ring found");
+}
+
+#[test]
 fn root_flare_widens_the_base_in_lobes() {
     let skeleton = tree(false, 0.5);
     let flare = RootFlare::default();
@@ -270,9 +308,16 @@ fn root_flare_widens_the_base_in_lobes() {
         .collect();
     let widest = base.iter().copied().fold(0.0, f32::max);
     let narrowest = base.iter().copied().fold(f32::MAX, f32::min);
+    // Ring vertices need not land on a ridge crest, and valleys keep
+    // `1 - lobe_depth` of the flare.
+    assert!(widest <= radius * (1.0 + flare.flare) + 1e-4, "{widest}");
     assert!(
-        (widest - radius * (1.0 + flare.flare)).abs() < 1e-4,
+        widest > radius * (1.0 + flare.flare * (1.0 - 0.5 * flare.lobe_depth)),
         "{widest}"
+    );
+    assert!(
+        narrowest >= radius * (1.0 + flare.flare * (1.0 - flare.lobe_depth)) - 1e-4,
+        "{narrowest}"
     );
     assert!(narrowest < widest * 0.95, "lobes carve the flare");
 }
