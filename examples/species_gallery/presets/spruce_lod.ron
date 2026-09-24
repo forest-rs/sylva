@@ -3,7 +3,8 @@
 // so even the hero level draws each twig in a few alpha-cut quads; sprays
 // on thicker shoots stay individual, thinned with their area kept. Budgets
 // count the triangles drawn (instances included) and the bytes of the
-// level's instanced GLB with its textures.
+// level's instanced GLB with its textures. The two finest levels weld major
+// forks with a smoothed skin; coarser ones keep embedded collars.
 (
     levels: [
         (
@@ -14,6 +15,7 @@
             min_branch_radius: 0.0,
             leaf_fraction: 0.18,
             clusters: Some((3, 16, 2, 0.35)),
+            junction: Welded,
             cell: 512,
             triangles: 300000,
             bytes: 40000000,
@@ -26,6 +28,7 @@
             min_branch_radius: 0.01,
             leaf_fraction: 0.08,
             clusters: Some((3, 8, 1, 0.35)),
+            junction: Welded,
             cell: 256,
             triangles: 160000,
             bytes: 20000000,

@@ -6,7 +6,7 @@
 
 use serde::Deserialize;
 use sylva_lod::{ClusterCards, LeafDetail, LodLevel, LodPolicy};
-use sylva_mesh::{MeshParams, RingResolution, Stations};
+use sylva_mesh::{Collar, Junction, MeshParams, RingResolution, Stations, Weld};
 
 /// A species' LOD chain: its levels, finest first, each with its budget.
 #[derive(Clone, Debug, Deserialize)]
@@ -33,6 +33,9 @@ pub(crate) struct LevelSpec {
     pub(crate) leaf_fraction: f32,
     /// Cluster cards: root order, baked exemplars, planes, leaf facing.
     pub(crate) clusters: Option<(u32, u32, u32, f32)>,
+    /// How children meet their parents.
+    #[serde(default)]
+    pub(crate) junction: JunctionSpec,
     /// Texels across one baked exemplar's atlas cell.
     #[serde(default = "default_cell")]
     pub(crate) cell: u32,
@@ -40,6 +43,26 @@ pub(crate) struct LevelSpec {
     pub(crate) triangles: u64,
     /// Most bytes its instanced GLB may take, textures included.
     pub(crate) bytes: u64,
+}
+
+/// A level's junction strategy.
+#[derive(Copy, Clone, Debug, Default, Deserialize)]
+pub(crate) enum JunctionSpec {
+    /// Children sit inside their parent behind a fillet collar.
+    #[default]
+    Embedded,
+    /// Major forks are welded with a smoothed skin that continues the
+    /// bark; forks the skin refuses stay embedded.
+    Welded,
+}
+
+impl JunctionSpec {
+    fn junction(self) -> Junction {
+        match self {
+            Self::Embedded => Junction::Embedded(Collar::default()),
+            Self::Welded => Junction::Welded(Weld::default()),
+        }
+    }
 }
 
 fn default_cell() -> u32 {
@@ -70,6 +93,7 @@ impl LodSpec {
                     min_branch_radius: l.min_branch_radius,
                     leaf_fraction: l.leaf_fraction,
                     leaf_detail: LeafDetail::Card,
+                    junction: Some(l.junction.junction()),
                     clusters: l
                         .clusters
                         .map(|(root_order, variants, planes, leaf_facing)| ClusterCards {
@@ -105,6 +129,7 @@ impl LodSpec {
                     clusters: l
                         .clusters
                         .map(|c| (c.root_order, c.variants, c.planes, c.leaf_facing)),
+                    junction: JunctionSpec::Embedded,
                     cell: default_cell(),
                     triangles: u64::MAX,
                     bytes: u64::MAX,

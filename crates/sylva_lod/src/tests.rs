@@ -518,3 +518,28 @@ fn cluster_leaf_facing_is_a_fraction() {
     }
     assert!(policy.validate().is_err());
 }
+
+#[test]
+fn levels_choose_their_own_junctions() {
+    let (skeleton, foliage) = tree();
+    let mut policy = LodPolicy::default();
+    policy.levels[0].junction = Some(sylva_mesh::Junction::Welded(sylva_mesh::Weld {
+        min_ratio: 0.05,
+        min_radius: 0.0,
+        ..sylva_mesh::Weld::default()
+    }));
+    let chain = build_lods(&skeleton, &foliage, &MeshParams::default(), &policy).expect("chain");
+    let r = chain.levels[0].report;
+    assert!(
+        r.welded_junctions + r.weld_fallbacks > 0,
+        "the finest level tries to weld its forks"
+    );
+    for level in &chain.levels[1..] {
+        let r = level.report;
+        assert_eq!(
+            (r.welded_junctions, r.weld_fallbacks),
+            (0, 0),
+            "coarser levels keep the base's embedded collars"
+        );
+    }
+}

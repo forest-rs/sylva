@@ -51,7 +51,9 @@ pub use impostor::{
 
 use exedra_mesh::Mesh;
 use sylva_foliage::{Foliage, FoliageError, LeafInstance, LeafShape, card_mesh, leaf_mesh};
-use sylva_mesh::{BarkMesh, MeshError, MeshParams, RingResolution, Stations, mesh_skeleton};
+use sylva_mesh::{
+    BarkMesh, Junction, MeshError, MeshParams, RingResolution, Stations, mesh_skeleton,
+};
 use sylva_skeleton::keyed::tag;
 use sylva_skeleton::{Branch, Skeleton, SkeletonError};
 
@@ -87,6 +89,11 @@ pub struct LodLevel {
     pub leaf_fraction: f32,
     /// Leaf geometry for leaves not in a cluster.
     pub leaf_detail: LeafDetail,
+    /// How children meet their parents at this level; `None` uses the
+    /// base meshing parameters' strategy. Welded forks that the skin
+    /// refuses fall back to embedded collars, counted in
+    /// [`LodReport::weld_fallbacks`].
+    pub junction: Option<Junction>,
     /// Cluster cards replacing the leaves (and bark) of every branch subtree
     /// of one order; `None` draws every kept leaf.
     pub clusters: Option<ClusterCards>,
@@ -132,6 +139,7 @@ impl Default for LodPolicy {
                     min_branch_radius: 0.0,
                     leaf_fraction: 1.0,
                     leaf_detail: LeafDetail::Card,
+                    junction: None,
                     clusters: None,
                 },
                 LodLevel {
@@ -142,6 +150,7 @@ impl Default for LodPolicy {
                     min_branch_radius: 0.012,
                     leaf_fraction: 0.6,
                     leaf_detail: LeafDetail::Card,
+                    junction: None,
                     clusters: None,
                 },
                 LodLevel {
@@ -152,6 +161,7 @@ impl Default for LodPolicy {
                     min_branch_radius: 0.015,
                     leaf_fraction: 0.3,
                     leaf_detail: LeafDetail::Card,
+                    junction: None,
                     clusters: Some(ClusterCards {
                         root_order: 3,
                         variants: 8,
@@ -167,6 +177,7 @@ impl Default for LodPolicy {
                     min_branch_radius: 0.04,
                     leaf_fraction: 0.12,
                     leaf_detail: LeafDetail::Card,
+                    junction: None,
                     clusters: Some(ClusterCards {
                         root_order: 2,
                         variants: 4,
@@ -200,6 +211,10 @@ pub struct LodReport {
     pub clustered_leaves: u64,
     /// Card triangles: two per plane per card.
     pub card_triangles: u64,
+    /// Forks joined by a welded skin.
+    pub welded_junctions: u64,
+    /// Major forks whose skin was refused, left embedded instead.
+    pub weld_fallbacks: u64,
 }
 
 impl LodReport {
@@ -429,6 +444,7 @@ pub fn build_lods(
         let params = MeshParams {
             rings: level.rings,
             stations: level.stations,
+            junction: level.junction.unwrap_or(base.junction),
             ..*base
         };
         let bark = mesh_skeleton(&pruned_skeleton, &params).map_err(LodError::Mesh)?;
@@ -478,6 +494,8 @@ pub fn build_lods(
             card_triangles: clusters
                 .as_ref()
                 .map_or(0, |c| 2 * u64::from(c.params.planes) * c.cards.len() as u64),
+            welded_junctions: bark.report.welded_junctions,
+            weld_fallbacks: bark.report.weld_fallbacks,
         };
         chain.push(LodMesh {
             level: *level,

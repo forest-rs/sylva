@@ -582,7 +582,7 @@ fn write_lods(
         levels.push(format!(
             "{{\"screen_size\":{},\"branches\":{},\"pruned\":{},\"bark_triangles\":{},\
              \"leaves\":{},\"leaf_triangles\":{},\"cluster_cards\":{},\"clustered_leaves\":{},\
-             \"card_triangles\":{},\"triangles\":{}}}",
+             \"card_triangles\":{},\"triangles\":{},\"welded\":{},\"weld_fallbacks\":{}}}",
             lod.level.screen_size,
             r.branches,
             r.pruned_branches,
@@ -592,7 +592,9 @@ fn write_lods(
             r.cluster_cards,
             r.clustered_leaves,
             r.card_triangles,
-            r.triangles()
+            r.triangles(),
+            r.welded_junctions,
+            r.weld_fallbacks
         ));
         if export != Export::None
             && let Some(clusters) = &lod.clusters
