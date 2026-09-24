@@ -267,12 +267,26 @@ pub fn export_lod_glb_with(
         _ => None,
     };
     let mut assembly = Assembly::new();
+    let mut leaves_added = false;
+    // Meshes sharing a name (merged leaves come in chunks) get numbered
+    // part and instance keys after the first: `leaves`, `leaves.1`, ...
+    let mut seen: Vec<&str> = Vec::new();
     for mesh in &lod.meshes {
         if instanced.is_some() && mesh.name == "leaves" {
-            add_leaf_instances(&mut assembly, level, mesh.material, instanced, asset)?;
+            if !leaves_added {
+                add_leaf_instances(&mut assembly, level, mesh.material, instanced, asset)?;
+                leaves_added = true;
+            }
             continue;
         }
-        let key = format!("lod{level}/{}", mesh.name);
+        let repeat = seen.iter().filter(|n| **n == mesh.name).count();
+        seen.push(mesh.name);
+        let name = if repeat == 0 {
+            String::from(mesh.name)
+        } else {
+            format!("{}.{repeat}", mesh.name)
+        };
+        let key = format!("lod{level}/{name}");
         let material = &asset.materials[mesh.material as usize];
         let part = assembly
             .add_baked_part(&key, mesh.mesh.clone(), &["surface"])
@@ -284,7 +298,7 @@ pub fn export_lod_glb_with(
             .set_part_material(part, "surface", &material.name)
             .map_err(ExportError::Assembly)?;
         assembly
-            .add_instance(None, mesh.name, part, Placement3::IDENTITY)
+            .add_instance(None, &name, part, Placement3::IDENTITY)
             .map_err(ExportError::Assembly)?;
     }
     let policy = CompilePolicy {

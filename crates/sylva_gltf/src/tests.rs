@@ -212,6 +212,13 @@ fn exports_check_their_inputs() {
 #[test]
 fn instanced_leaves_draw_each_template_once() {
     let mut asset = asset();
+    // Merged leaves come in chunks; a second chunk must neither add a second
+    // instanced batch nor collide with the first's part.
+    asset.lods[0].meshes.push(AssetMesh {
+        name: "leaves",
+        material: 1,
+        mesh: quad(5),
+    });
     let leaf = |x: f32| AssetLeaf {
         template: 0,
         position: glam::Vec3::new(x, 0.0, 2.0),
@@ -255,4 +262,9 @@ fn instanced_leaves_draw_each_template_once() {
         .json()
         .clone();
     assert!(merged.get("extensionsRequired").is_none());
+    assert_eq!(
+        merged["meshes"].as_array().expect("meshes").len(),
+        3,
+        "bark and both leaf chunks"
+    );
 }

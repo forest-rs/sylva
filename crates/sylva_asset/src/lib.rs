@@ -116,7 +116,9 @@ impl Default for TreeMaterials {
 /// One mesh of a level, drawn with one material.
 #[derive(Clone, Debug)]
 pub struct AssetMesh {
-    /// Name within the level: `bark`, `leaves` or `cards`.
+    /// Name within the level: `bark`, `leaves` or `cards`. Merged leaves
+    /// come in several `leaves` meshes of at most [`LEAVES_PER_MESH`]
+    /// instances each.
     pub name: &'static str,
     /// Index into [`TreeAsset::materials`].
     pub material: u32,
@@ -273,11 +275,13 @@ pub fn build_asset(
         });
         let mut leaves = None;
         if !level.leaves.is_empty() {
-            meshes.push(AssetMesh {
-                name: "leaves",
-                material: 1,
-                mesh: leaf_mesh(foliage, &level.templates, &level.leaves, &leaf_branches)?,
-            });
+            for chunk in level.leaves.chunks(LEAVES_PER_MESH) {
+                meshes.push(AssetMesh {
+                    name: "leaves",
+                    material: 1,
+                    mesh: leaf_mesh(foliage, &level.templates, chunk, &leaf_branches)?,
+                });
+            }
             leaves = Some(AssetLeaves {
                 templates: level.templates.clone(),
                 instances: level
@@ -360,6 +364,15 @@ pub fn build_asset(
         report,
     })
 }
+
+/// Most leaf instances merged into one `leaves` mesh.
+///
+/// Every leaf is an open sheet, so a merged mesh has as many boundary loops
+/// as leaves, and `exedra_mesh`'s builder stitches boundary edges in time
+/// quadratic in their count: a full crown in one mesh takes hours. Chunks of
+/// this size build in well under a second each and keep each mesh small
+/// enough to cull.
+pub const LEAVES_PER_MESH: usize = 256;
 
 /// Merges leaf instances of `templates` into one mesh.
 fn leaf_mesh(
