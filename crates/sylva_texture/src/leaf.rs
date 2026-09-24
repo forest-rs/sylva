@@ -127,6 +127,15 @@ impl LeafRecipe {
         let l = shape.length;
         let w = self.vein_width * l;
         let mut veins = alloc::vec![(Vec2::ZERO, Vec2::new(0.0, l), w)];
+        // A leaflet's own midvein runs from the midrib to its tip.
+        for t in shape.leaflet_ts() {
+            let reach = shape.half_width(t);
+            for side in [-1.0, 1.0] {
+                let start = shape.skewed(Vec2::new(0.0, t * l));
+                let end = shape.skewed(Vec2::new(side * reach, t * l));
+                veins.push((start, end, 0.5 * w));
+            }
+        }
         #[expect(clippy::cast_precision_loss, reason = "lobe counts are small")]
         let lobes = shape.lobes as f32;
         for k in 1..=shape.lobes {
@@ -169,8 +178,9 @@ fn frame(shape: &LeafShape, size: u32) -> Result<Realization, TextureError> {
 ///
 /// Each texel holds the fraction of its area inside the outline, in steps
 /// of 1/255, from `dapple_imaging` on the same grid as the leaf set's other
-/// maps. The outline is [`LeafShape::outline_at`] with four stations per
-/// texel along the midrib, fine enough that its chords follow the lobes.
+/// maps. The tissue is [`LeafShape::tissue_at`] with four stations per
+/// texel along the midrib, fine enough that its chords follow the lobes; a
+/// compound blade's midrib and leaflets fill as one union.
 ///
 /// # Errors
 ///
@@ -179,17 +189,18 @@ pub fn leaf_mask(shape: &LeafShape, size: u32) -> Result<Raster, TextureError> {
     if size == 0 {
         return Err(TextureError::Params { name: "size" });
     }
-    let outline = shape.outline_at(size.saturating_mul(4).max(shape.stations));
     let mut path = BezPath::new();
-    for (i, p) in outline.iter().enumerate() {
-        let p = (f64::from(p.x), f64::from(p.y));
-        if i == 0 {
-            path.move_to(p);
-        } else {
-            path.line_to(p);
+    for polygon in shape.tissue_at(size.saturating_mul(4).max(shape.stations)) {
+        for (i, p) in polygon.iter().enumerate() {
+            let p = (f64::from(p.x), f64::from(p.y));
+            if i == 0 {
+                path.move_to(p);
+            } else {
+                path.line_to(p);
+            }
         }
+        path.close_path();
     }
-    path.close_path();
     let mut scene = Scene::new();
     Painter::new(&mut scene).fill(&path, Color::WHITE).draw();
     rasterize(&scene, frame(shape, size)?).map_err(|e| TextureError::Mask(e.to_string()))

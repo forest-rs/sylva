@@ -87,6 +87,15 @@ impl LeafShape {
                 && self.lobe_skew * self.max_half_width() < self.length,
             "shape.lobe_skew",
         )?;
+        check(self.leaflets <= 1024, "shape.leaflets")?;
+        check(
+            self.leaflet_width.is_finite() && self.leaflet_width > 0.0 && self.leaflet_width < 0.5,
+            "shape.leaflet_width",
+        )?;
+        check(
+            (0.0..1.0).contains(&self.leaflet_span),
+            "shape.leaflet_span",
+        )?;
         // The swept margin must still advance from station to station, or
         // the blade strip would fold over itself.
         let ts = self.station_ts();

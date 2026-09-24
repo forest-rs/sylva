@@ -275,3 +275,50 @@ fn folding_sweeps_are_refused() {
         })
     );
 }
+
+#[test]
+fn leaflets_cut_the_blade_into_a_midrib_and_needles() {
+    let frond = LeafShape {
+        length: 0.12,
+        width: 0.3,
+        widest_at: 0.35,
+        tip: 0.9,
+        lobes: 0,
+        lobe_depth: 0.0,
+        lobe_skew: 0.9,
+        auricle: 0.0,
+        leaflets: 20,
+        leaflet_width: 0.012,
+        leaflet_span: 0.05,
+        ..LeafShape::default()
+    };
+    frond.validate().expect("valid frond");
+    // Sample the frame: tissue lies inside the outline, and covers only a
+    // fraction of it.
+    let half = frond.max_half_width();
+    let (mut inside, mut covered) = (0, 0);
+    for i in 0..200 {
+        for j in 0..200 {
+            let p = Vec2::new(
+                -half + 2.0 * half * (i as f32 + 0.5) / 200.0,
+                frond.length * (j as f32 + 0.5) / 200.0,
+            );
+            let (a, b) = (frond.contains(p), frond.covers(p));
+            assert!(!b || a, "tissue outside the outline at {p}");
+            inside += usize::from(a);
+            covered += usize::from(b);
+        }
+    }
+    assert!(covered > 0 && 2 * covered < inside, "{covered} of {inside}");
+    // The midrib is tissue; a point between two leaflets is not.
+    assert!(frond.covers(Vec2::new(0.0, 0.5 * frond.length)));
+    let ts = frond.leaflet_ts();
+    let between = 0.5 * (ts[5] + ts[6]);
+    let x = 0.5 * frond.half_width(between);
+    assert!(!frond.covers(frond.skewed(Vec2::new(x, between * frond.length))));
+    // One polygon for the midrib and one per leaflet.
+    assert_eq!(frond.tissue_at(64).len(), 1 + 2 * 20);
+    // A simple blade's tissue is its outline.
+    let oak = LeafShape::default();
+    assert_eq!(oak.tissue_at(64), vec![oak.outline_at(64)]);
+}
