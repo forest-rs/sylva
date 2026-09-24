@@ -66,17 +66,17 @@ impl Default for LeafRecipe {
             size: 256,
             // A deep, saturated summer green; oak's upper surface is dark
             // and waxy.
-            // Oak's upper surface is a deep, slightly blue green: a waxy
-            // cuticle over dense chlorophyll. Too little blue reads lime in
-            // full sun.
-            green: [0.026, 0.056, 0.017],
+            // Mid-summer oak's upper surface is a deep, slightly blue green,
+            // about sRGB (48, 70, 39): a waxy cuticle over dense chlorophyll.
+            green: [0.03, 0.062, 0.02],
             vein: [0.06, 0.11, 0.03],
-            // Transmitted light is a vivid yellow-green: chlorophyll absorbs
-            // red and blue on the way through. A thin blade transmits more
-            // green than it reflects, which is what makes a backlit crown
-            // glow.
-            translucent: [0.3, 0.55, 0.06],
-            translucency: 0.72,
+            // A leaf transmits about as much green light as it reflects,
+            // yellower (chlorophyll absorbs red and blue on the way
+            // through). Backlit leaves glow because the sun behind them is
+            // far brighter than the sky in front, not because they transmit
+            // more.
+            translucent: [0.07, 0.14, 0.02],
+            translucency: 0.5,
             vein_width: 0.012,
             vein_relief: 0.0004,
             mottle: 0.15,
