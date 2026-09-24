@@ -85,7 +85,7 @@ Species(
             ),
             // Twigs: the finest shoots, all carrying needles.
             (
-                count: PerMetre(11.0),
+                count: PerMetre(9.0),
                 span: (0.1, 0.95),
                 arrangement: Alternate,
                 roll_jitter: 0.6,

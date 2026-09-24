@@ -1,0 +1,58 @@
+// The spruce's LOD chain and budget. Twigs with their needle sprays become
+// cards baked from a small library of exemplar twigs from full detail on,
+// so even the hero level draws each twig in a few alpha-cut quads; sprays
+// on thicker shoots stay individual, thinned with their area kept. Budgets
+// count the triangles drawn (instances included) and the bytes of the
+// level's instanced GLB with its textures.
+(
+    levels: [
+        (
+            screen_size: 0.5,
+            crossfade: 0.1,
+            rings: (14.0, 3, 20),
+            stations: (0.6, 2.0),
+            min_branch_radius: 0.0,
+            leaf_fraction: 0.18,
+            clusters: Some((3, 16, 2, 0.35)),
+            cell: 512,
+            triangles: 300000,
+            bytes: 40000000,
+        ),
+        (
+            screen_size: 0.25,
+            crossfade: 0.1,
+            rings: (8.0, 3, 12),
+            stations: (0.7, 2.0),
+            min_branch_radius: 0.01,
+            leaf_fraction: 0.08,
+            clusters: Some((3, 8, 1, 0.35)),
+            cell: 256,
+            triangles: 160000,
+            bytes: 20000000,
+        ),
+        (
+            screen_size: 0.1,
+            crossfade: 0.15,
+            rings: (5.0, 3, 8),
+            stations: (0.5, 2.5),
+            min_branch_radius: 0.015,
+            leaf_fraction: 0.06,
+            clusters: Some((2, 8, 2, 0.0)),
+            cell: 256,
+            triangles: 40000,
+            bytes: 12000000,
+        ),
+        (
+            screen_size: 0.04,
+            crossfade: 0.2,
+            rings: (3.0, 3, 6),
+            stations: (0.8, 4.0),
+            min_branch_radius: 0.04,
+            leaf_fraction: 0.03,
+            clusters: Some((1, 8, 2, 0.0)),
+            cell: 256,
+            triangles: 8000,
+            bytes: 8000000,
+        ),
+    ],
+)
