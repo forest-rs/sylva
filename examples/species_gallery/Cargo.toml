@@ -12,6 +12,8 @@ publish = false
 dapple_encode = { features = ["std"], workspace = true }
 dapple_graph = { features = ["serde"], workspace = true }
 dapple_lab.workspace = true
+dapple_library.workspace = true
+dapple_material.workspace = true
 exedra_mesh = { features = ["std"], workspace = true }
 png = "0.18.1"
 ron = "0.11.0"

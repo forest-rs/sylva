@@ -1,0 +1,57 @@
+// The birch's LOD chain and budget, set up as the oak's (see oak_lod.ron):
+// twig cluster cards from full detail on, welded forks at the two finest
+// levels, and a triangle and instanced-GLB byte budget per level.
+(
+    levels: [
+        (
+            screen_size: 0.5,
+            crossfade: 0.1,
+            rings: (20.0, 3, 24),
+            stations: (0.15, 1.0),
+            min_branch_radius: 0.0,
+            leaf_fraction: 0.6,
+            clusters: Some((3, 16, 3, 0.35)),
+            junction: Welded,
+            cell: 512,
+            triangles: 300000,
+            bytes: 40000000,
+        ),
+        (
+            screen_size: 0.25,
+            crossfade: 0.1,
+            rings: (10.0, 3, 16),
+            stations: (0.3, 1.5),
+            min_branch_radius: 0.012,
+            leaf_fraction: 0.35,
+            clusters: Some((3, 8, 2, 0.35)),
+            junction: Welded,
+            cell: 256,
+            triangles: 160000,
+            bytes: 20000000,
+        ),
+        (
+            screen_size: 0.1,
+            crossfade: 0.15,
+            rings: (5.0, 3, 10),
+            stations: (0.5, 2.5),
+            min_branch_radius: 0.015,
+            leaf_fraction: 0.2,
+            clusters: Some((3, 8, 1, 0.35)),
+            cell: 256,
+            triangles: 80000,
+            bytes: 12000000,
+        ),
+        (
+            screen_size: 0.04,
+            crossfade: 0.2,
+            rings: (3.0, 3, 6),
+            stations: (0.8, 4.0),
+            min_branch_radius: 0.04,
+            leaf_fraction: 0.1,
+            clusters: Some((2, 4, 2, 0.0)),
+            cell: 256,
+            triangles: 8000,
+            bytes: 8000000,
+        ),
+    ],
+)

@@ -1,0 +1,34 @@
+// Reference ranges for silver birch (Betula pendula), as derived
+// statistics: broad bands containing the published relationships, not
+// values copied from one table. Each range names the growing condition it
+// describes; ranges with none hold in either. Sources (full citations in
+// sylva_measure's docs):
+//
+// - "hemery2005": Hemery, Savill & Pryor 2005, woodland and plantation
+//   trees, birch among them (its crown to stem ratio is one of the lowest
+//   they found), of stand-grown form;
+// - "dapple": dapple's bark calibration (white birch bark);
+// - "sylva": a target of sylva's own where no source gives a number,
+//   usually a band read from the other ranges or a review target.
+(
+    species: "Betula pendula",
+    ranges: [
+        // In the open: a narrow, airy ovoid on a slender stem.
+        (name: "allometry.height_to_crown_width", lo: 1.4, hi: 3.2, source: "sylva", condition: Some(Open)),
+        (name: "allometry.crown_width_to_dbh", lo: 10.0, hi: 25.0, source: "sylva", condition: Some(Open)),
+        (name: "allometry.slenderness", lo: 30.0, hi: 70.0, source: "sylva", condition: Some(Open)),
+        (name: "allometry.crown_ratio", lo: 0.55, hi: 0.92, source: "sylva", condition: Some(Open)),
+        (name: "allometry.height", lo: 12.0, hi: 28.0, source: "sylva", condition: Some(Open)),
+        // In a stand: a light-demanding pioneer, tall with a small crown.
+        (name: "allometry.crown_width_to_dbh", lo: 8.0, hi: 18.0, source: "hemery2005", condition: Some(Stand)),
+        (name: "allometry.slenderness", lo: 60.0, hi: 110.0, source: "sylva", condition: Some(Stand)),
+        (name: "allometry.crown_ratio", lo: 0.3, hi: 0.55, source: "sylva", condition: Some(Stand)),
+        // Either way: branches ascend from the stem.
+        (name: "form.branch_angle.order1.mean", lo: 30.0, hi: 70.0, source: "sylva"),
+        // A light, airy crown: much sky shows through.
+        (name: "crown.sky_fraction", lo: 0.15, hi: 0.55, source: "sylva"),
+        (name: "colour.leaf.srgb_green", lo: 65.0, hi: 105.0, source: "sylva"),
+        // White bark above the base.
+        (name: "colour.bark.srgb_luma", lo: 150.0, hi: 235.0, source: "dapple"),
+    ],
+)

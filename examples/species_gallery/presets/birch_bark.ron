@@ -1,0 +1,4 @@
+// Dapple's calibrated silver birch bark: white with dark lenticels, at
+// the stem's girth, above the dark, fissured base (one bark set covers the
+// whole stem; bark that changes up the stem is not modelled yet).
+(module: "birch", girth: 1.1, height: 3.0, size: 1024)

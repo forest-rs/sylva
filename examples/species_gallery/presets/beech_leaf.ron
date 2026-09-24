@@ -1,0 +1,9 @@
+// Summer beech leaves: a clear, mid green above, thin and translucent.
+(
+    green: (0.03, 0.075, 0.018),
+    vein: (0.05, 0.1, 0.03),
+    translucent: (0.08, 0.16, 0.025),
+    translucency: 0.55,
+    mottle: 0.1,
+    roughness: 0.5,
+)

@@ -11,7 +11,7 @@ use dapple_lab::fit::{Cmaes, Dimension, Space, Target, fit, loss};
 use sylva_grow::{Curve, Hierarchy};
 use sylva_measure::{Reference, TreeMeasures, measure};
 use sylva_species::{Growth, Species};
-use sylva_texture::{LeafRecipe, bark, leaf};
+use sylva_texture::{LeafRecipe, leaf};
 
 use crate::{LeafLook, Preset};
 
@@ -91,8 +91,7 @@ fn colour(
             green / f64::max(covered, 1.0),
         ));
     }
-    let recipe: dapple_graph::Recipe = toml::from_str(&preset.bark)?;
-    let set = bark(&recipe)?;
+    let set = preset.bark.set()?;
     let color = set.maps.base_color.ok_or("bark sets have colour")?;
     let texels = color.values().chunks(3);
     let n = texels.len();

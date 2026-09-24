@@ -1,0 +1,34 @@
+// Reference ranges for European beech (Fagus sylvatica), as derived
+// statistics: broad bands containing the published relationships, not
+// values copied from one table. Each range names the growing condition it
+// describes; ranges with none hold in either. Sources (full citations in
+// sylva_measure's docs):
+//
+// - "hemery2005": Hemery, Savill & Pryor 2005, woodland and plantation
+//   trees, beech among them, of stand-grown form;
+// - "dapple": dapple's bark calibration (smooth grey bark, measured
+//   luminance of the nearest grey bark);
+// - "sylva": a target of sylva's own where no source gives a number,
+//   usually a band read from the other ranges or a review target.
+(
+    species: "Fagus sylvatica",
+    ranges: [
+        // In the open: a broad, low dome on a short bole.
+        (name: "allometry.height_to_crown_width", lo: 0.7, hi: 1.5, source: "sylva", condition: Some(Open)),
+        (name: "allometry.crown_width_to_dbh", lo: 12.0, hi: 30.0, source: "sylva", condition: Some(Open)),
+        (name: "allometry.slenderness", lo: 12.0, hi: 35.0, source: "sylva", condition: Some(Open)),
+        (name: "allometry.crown_ratio", lo: 0.6, hi: 0.95, source: "sylva", condition: Some(Open)),
+        (name: "allometry.height", lo: 15.0, hi: 32.0, source: "sylva", condition: Some(Open)),
+        // In a stand: tall and clean-stemmed, the crown high.
+        (name: "allometry.crown_width_to_dbh", lo: 12.0, hi: 25.0, source: "hemery2005", condition: Some(Stand)),
+        (name: "allometry.slenderness", lo: 50.0, hi: 100.0, source: "sylva", condition: Some(Stand)),
+        (name: "allometry.crown_ratio", lo: 0.3, hi: 0.6, source: "sylva", condition: Some(Stand)),
+        // Either way: limbs climb steeply from the bole.
+        (name: "form.branch_angle.order1.mean", lo: 30.0, hi: 70.0, source: "sylva"),
+        // Shade tolerant and densely layered: little sky through the crown.
+        (name: "crown.sky_fraction", lo: 0.02, hi: 0.2, source: "sylva"),
+        (name: "colour.leaf.srgb_green", lo: 60.0, hi: 95.0, source: "sylva"),
+        // Smooth grey bark.
+        (name: "colour.bark.srgb_luma", lo: 95.0, hi: 165.0, source: "dapple"),
+    ],
+)

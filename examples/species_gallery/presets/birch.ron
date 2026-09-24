@@ -1,0 +1,119 @@
+// An open-grown silver birch (Betula pendula): a slender white stem carried
+// up into the crown, ascending branches, and long, fine, pendulous twigs
+// hanging in curtains, with small, toothed, triangular leaves; a light,
+// airy crown that shows much sky. Metres and radians, +Z up.
+Species(
+    name: "birch",
+    // Grown in the open.
+    grown_in: Open,
+    growth: Hierarchical((
+        trunk: (
+            length: 17.0,
+            length_jitter: 0.1,
+            lean: 0.06,
+            shape: (gnarl: 0.06, gnarl_wavelength: 3.0, up: 0.04),
+            sites: Some((
+                per_metre: 10.0,
+                span: (0.85, 1.0),
+                kind: 0,
+                angle: 0.6,
+                tip_cluster: 4,
+                cluster_span: 0.05,
+            )),
+        ),
+        levels: [
+            // Ascending branches spiralling up the stem.
+            (
+                count: PerMetre(2.2),
+                span: (0.25, 0.95),
+                arrangement: Spiral(divergence: 2.39996),
+                roll_jitter: 0.5,
+                position_jitter: 0.8,
+                angle: [(0.0, 0.95), (0.6, 0.75), (1.0, 0.5)],
+                angle_jitter: 0.2,
+                length: [(0.0, 0.32), (0.4, 0.3), (1.0, 0.1)],
+                length_jitter: 0.25,
+                balance: 0.8,
+                shape: (
+                    curve: 0.2,
+                    curve_back: -0.35,
+                    gnarl: 0.15,
+                    gnarl_wavelength: 1.5,
+                    sag: 0.1,
+                ),
+            ),
+            // Long, whippy side branches that arch over.
+            (
+                count: PerMetre(4.0),
+                span: (0.15, 1.0),
+                arrangement: Spiral(divergence: 2.39996),
+                roll_jitter: 0.5,
+                position_jitter: 0.7,
+                angle: [(0.0, 0.8), (1.0, 0.6)],
+                angle_jitter: 0.25,
+                length: [(0.0, 0.55), (0.5, 0.45), (1.0, 0.25)],
+                length_jitter: 0.3,
+                shape: (gnarl: 0.2, gnarl_wavelength: 0.8, sag: 0.9),
+            ),
+            // Fine pendulous twigs, hanging straight down.
+            (
+                count: PerMetre(9.0),
+                span: (0.2, 1.0),
+                arrangement: Spiral(divergence: 2.39996),
+                roll_jitter: 0.5,
+                position_jitter: 0.7,
+                angle: [(0.0, 0.7), (1.0, 0.5)],
+                angle_jitter: 0.3,
+                length: [(0.0, 0.6), (1.0, 0.35)],
+                length_jitter: 0.3,
+                shape: (gnarl: 0.1, gnarl_wavelength: 0.3, sag: 5.0),
+                sites: Some((
+                    per_metre: 9.0,
+                    span: (0.1, 1.0),
+                    kind: 0,
+                    angle: 0.9,
+                    tip_cluster: 2,
+                    cluster_span: 0.1,
+                )),
+            ),
+        ],
+        // A narrow ovoid crown.
+        envelope: Some((
+            base: 3.0,
+            height: 16.5,
+            radius: 4.2,
+            profile: [(0.0, 0.7), (0.3, 1.0), (0.6, 0.85), (1.0, 0.2)],
+            from_level: 1,
+            min_fraction: 0.3,
+            lumps: 0.2,
+            lump_size: 2.0,
+        )),
+        radii: (tip_radius: 0.002, exponent: 2.33, shoots_per_metre: 10.0, bole_taper: 0.04),
+        segment_length: 0.3,
+    )),
+    // Birch leaves: small, triangular-ovate, doubly toothed, 4 to 6 cm, on
+    // long stalks, fluttering.
+    foliage: Some((
+        site_kind: 0,
+        shape: (
+            length: 0.05,
+            width: 0.75,
+            widest_at: 0.3,
+            tip: 0.95,
+            lobes: 10,
+            lobe_depth: 0.1,
+            petiole: 0.02,
+            fold: 0.1,
+            curl: 0.03,
+            stations: 12,
+            lobe_skew: 0.4,
+            auricle: 0.0,
+        ),
+        variants: 4,
+        variation: (size: 0.2, width: 0.1, lobe_depth: 0.3),
+        droop: 0.5,
+        light: 0.4,
+        roll_jitter: 0.8,
+        seed: 7,
+    )),
+)

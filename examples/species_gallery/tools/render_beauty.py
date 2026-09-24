@@ -23,9 +23,9 @@ Shots:
 - `backlit`: the same view with the sun behind the tree, where leaf
   translucency carries the crown;
 - `grove`: seeds 3, 5, 2, 1 and 4 together, for variation between seeds;
-- `mixed`: a grove of oaks and spruces (seeds 1 to 3 of each), with both
-  species in the distant clumps, for how different architectures read
-  together;
+- `mixed`: a grove of every species preset (oak, spruce, beech and
+  birch), with all of them in the distant clumps, for how different
+  architectures read together;
 - `bark`: the trunk base and lower limbs close up.
 
 Everything renders on the Metal GPU with adaptive sampling and OIDN, under
@@ -516,12 +516,13 @@ def main():
             placements = [
                 ("oak", 3, (0, 0)),
                 ("spruce", 1, (-13, 12)),
-                ("spruce", 2, (12, 15)),
+                ("birch", 1, (11, 4)),
+                ("beech", 1, (14, 22)),
                 ("oak", 1, (-4, 30)),
-                ("spruce", 3, (22, -4)),
-                ("oak", 2, (27, 24)),
+                ("spruce", 3, (26, -4)),
+                ("birch", 2, (-20, -2)),
             ]
-            far_species = ("oak", "spruce")
+            far_species = ("oak", "spruce", "beech", "birch")
         for species, seed, (x, y) in placements:
             rot, scale = rng.uniform(0, 2 * math.pi), rng.uniform(0.85, 1.15)
             if not (GEN / f"{species}-seed{seed}/glb/lod0.glb").exists():

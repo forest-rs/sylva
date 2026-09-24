@@ -1,0 +1,10 @@
+// Summer birch leaves: a fresh, slightly yellow green, thin and bright
+// against the light.
+(
+    green: (0.04, 0.09, 0.022),
+    vein: (0.06, 0.12, 0.035),
+    translucent: (0.09, 0.18, 0.03),
+    translucency: 0.6,
+    mottle: 0.1,
+    roughness: 0.5,
+)

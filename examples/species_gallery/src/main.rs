@@ -1,12 +1,14 @@
 // Copyright 2026 the Sylva Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Grows every species preset (an oak and a spruce) for several seeds and
-//! writes, per species and seed, a skeleton dump and the bark mesh for
-//! Blender review.
+//! Grows every species preset (oak, spruce, beech and birch) for several
+//! seeds and writes, per species and seed, a skeleton dump and the bark
+//! mesh for Blender review.
 //!
 //! A preset is data: `presets/<name>.ron` (the [`Species`]),
-//! `presets/<name>_bark.toml` (its dapple bark recipe) and, optionally,
+//! `presets/<name>_bark.toml` (a dapple bark recipe) or
+//! `presets/<name>_bark.ron` (one of dapple's calibrated bark modules at a
+//! girth and height, a [`BarkModule`]) and, optionally,
 //! `presets/<name>_leaf.ron` (its leaf colours, the fields of
 //! [`LeafRecipe`]) and `presets/<name>_lod.ron` (its LOD chain, each level
 //! with a budget of triangles drawn and instanced GLB bytes). Each seed's
@@ -103,39 +105,112 @@ use sylva_texture::{LeafRecipe, bark, leaf};
 use skeleton_dump::{skeleton_json, skeleton_obj};
 use sylva_species::Species;
 
-/// One species preset: its growth and foliage, its bark recipe (dapple's
-/// format, scaled to a 1 m tile), and optionally its leaf colours.
+/// One species preset: its growth and foliage, its bark, and optionally its
+/// leaf colours, LOD chain and reference ranges.
 pub(crate) struct Preset {
     pub(crate) species: String,
-    pub(crate) bark: String,
+    pub(crate) bark: Bark<String>,
     pub(crate) leaf: Option<String>,
     lod: Option<String>,
     pub(crate) reference: Option<String>,
 }
 
-/// The built-in presets, as `(species, bark, leaf colours, LOD chain)`
-/// sources.
-const PRESETS: [(&str, &str, Option<&str>, Option<&str>); 2] = [
+/// A preset's bark source.
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum Bark<S> {
+    /// A dapple recipe (`<name>_bark.toml`, dapple's format, scaled to a
+    /// 1 m tile).
+    Recipe(S),
+    /// One of dapple's calibrated bark modules (`<name>_bark.ron`, a
+    /// [`BarkModule`]).
+    Module(S),
+}
+
+/// A dapple bark module and the stem it describes, as `<name>_bark.ron`.
+#[derive(serde::Deserialize)]
+pub(crate) struct BarkModule {
+    /// The module: `beech`, `birch`, `scots_pine` or `spruce`.
+    module: String,
+    /// The stem's circumference, metres.
+    girth: f32,
+    /// The tile's height on the trunk, metres.
+    height: f32,
+    /// Texels a side of the one-metre tile.
+    size: u32,
+}
+
+impl Bark<String> {
+    /// Generates the bark set.
+    pub(crate) fn set(&self) -> Result<sylva_texture::BarkSet, Box<dyn std::error::Error>> {
+        Ok(match self {
+            Self::Recipe(source) => bark(&toml::from_str::<dapple_graph::Recipe>(source)?)?,
+            Self::Module(source) => {
+                let spec: BarkModule = ron::from_str(source)?;
+                let module = bark_module_named(&spec.module)?;
+                sylva_texture::bark_module(module.as_ref(), spec.girth, spec.height, spec.size)?
+            }
+        })
+    }
+}
+
+/// Dapple's bark module called `name`.
+pub(crate) fn bark_module_named(
+    name: &str,
+) -> Result<Box<dyn dapple_material::module::Module>, Box<dyn std::error::Error>> {
+    use dapple_library::modules::{Beech, Birch, ScotsPine, Spruce};
+    Ok(match name {
+        "beech" => Box::new(Beech),
+        "birch" => Box::new(Birch),
+        "scots_pine" => Box::new(ScotsPine),
+        "spruce" => Box::new(Spruce),
+        _ => return Err(format!("no dapple bark module named {name}").into()),
+    })
+}
+
+/// One built-in preset's sources: species, bark, leaf colours, LOD chain.
+type Sources = (
+    &'static str,
+    Bark<&'static str>,
+    Option<&'static str>,
+    Option<&'static str>,
+);
+
+/// The built-in presets.
+const PRESETS: [Sources; 4] = [
     (
         include_str!("../presets/oak.ron"),
-        include_str!("../presets/oak_bark.toml"),
+        Bark::Recipe(include_str!("../presets/oak_bark.toml")),
         None,
         Some(include_str!("../presets/oak_lod.ron")),
     ),
     (
         include_str!("../presets/spruce.ron"),
-        include_str!("../presets/spruce_bark.toml"),
+        Bark::Recipe(include_str!("../presets/spruce_bark.toml")),
         Some(include_str!("../presets/spruce_leaf.ron")),
         Some(include_str!("../presets/spruce_lod.ron")),
+    ),
+    (
+        include_str!("../presets/beech.ron"),
+        Bark::Module(include_str!("../presets/beech_bark.ron")),
+        Some(include_str!("../presets/beech_leaf.ron")),
+        Some(include_str!("../presets/beech_lod.ron")),
+    ),
+    (
+        include_str!("../presets/birch.ron"),
+        Bark::Module(include_str!("../presets/birch_bark.ron")),
+        Some(include_str!("../presets/birch_leaf.ron")),
+        Some(include_str!("../presets/birch_lod.ron")),
     ),
 ];
 #[cfg(test)]
 const OAK: &str = PRESETS[0].0;
 /// Each built-in preset's reference ranges (`<name>_reference.ron`), in
 /// [`PRESETS`] order.
-const REFERENCES: [&str; 2] = [
+const REFERENCES: [&str; 4] = [
     include_str!("../presets/oak_reference.ron"),
     include_str!("../presets/spruce_reference.ron"),
+    include_str!("../presets/beech_reference.ron"),
+    include_str!("../presets/birch_reference.ron"),
 ];
 const SEEDS: [u64; 3] = [1, 2, 3];
 
@@ -166,8 +241,9 @@ impl Default for LeafLook {
     }
 }
 
-/// Reads the preset at `path` (`<name>.ron`), with `<name>_bark.toml` and,
-/// if present, `<name>_leaf.ron` beside it.
+/// Reads the preset at `path` (`<name>.ron`), with `<name>_bark.toml` or
+/// `<name>_bark.ron` and, if present, `<name>_leaf.ron`, `<name>_lod.ron`
+/// and `<name>_reference.ron` beside it.
 fn read_preset(path: &std::path::Path) -> Result<Preset, Box<dyn std::error::Error>> {
     let stem = path
         .file_stem()
@@ -176,7 +252,10 @@ fn read_preset(path: &std::path::Path) -> Result<Preset, Box<dyn std::error::Err
     let sibling = |suffix: &str| path.with_file_name(format!("{stem}{suffix}"));
     Ok(Preset {
         species: std::fs::read_to_string(path)?,
-        bark: std::fs::read_to_string(sibling("_bark.toml"))?,
+        bark: match std::fs::read_to_string(sibling("_bark.toml")) {
+            Ok(recipe) => Bark::Recipe(recipe),
+            Err(_) => Bark::Module(std::fs::read_to_string(sibling("_bark.ron"))?),
+        },
         leaf: std::fs::read_to_string(sibling("_leaf.ron")).ok(),
         lod: std::fs::read_to_string(sibling("_lod.ron")).ok(),
         reference: std::fs::read_to_string(sibling("_reference.ron")).ok(),
@@ -224,7 +303,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .zip(REFERENCES)
             .map(|(&(species, bark, leaf, lod), reference)| Preset {
                 species: species.into(),
-                bark: bark.into(),
+                bark: match bark {
+                    Bark::Recipe(s) => Bark::Recipe(s.into()),
+                    Bark::Module(s) => Bark::Module(s.into()),
+                },
                 leaf: leaf.map(Into::into),
                 lod: lod.map(Into::into),
                 reference: Some(reference.into()),
@@ -904,8 +986,7 @@ fn write_textures(
     preset: &Preset,
 ) -> Result<card::Textures, Box<dyn std::error::Error>> {
     let started = Instant::now();
-    let recipe: dapple_graph::Recipe = toml::from_str(&preset.bark)?;
-    let bark_set = bark(&recipe)?;
+    let bark_set = preset.bark.set()?;
     let mut textures = card::Textures {
         bark: bark_set
             .maps
@@ -978,10 +1059,18 @@ mod tests {
     fn presets_parse_and_grow() {
         for (species, bark, leaf, lod) in PRESETS {
             let species: Species = ron::from_str(species).expect("species");
-            let recipe: dapple_graph::Recipe = toml::from_str(bark).expect("bark recipe");
-            // Fingerprinting checks the version and the graph without
-            // realizing it.
-            recipe.fingerprint().expect("a valid bark recipe");
+            match bark {
+                super::Bark::Recipe(source) => {
+                    let recipe: dapple_graph::Recipe = toml::from_str(source).expect("bark recipe");
+                    // Fingerprinting checks the version and the graph
+                    // without realizing it.
+                    recipe.fingerprint().expect("a valid bark recipe");
+                }
+                super::Bark::Module(source) => {
+                    let spec: super::BarkModule = ron::from_str(source).expect("bark module");
+                    super::bark_module_named(&spec.module).expect("a dapple bark module");
+                }
+            }
             if let Some(leaf) = leaf {
                 let _: LeafLook = ron::from_str(leaf).expect("leaf colours");
             }

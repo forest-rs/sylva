@@ -1,0 +1,3 @@
+// Dapple's calibrated beech bark (smooth, grey, faint lenticels and
+// scars) at the bole's girth, measured at breast height.
+(module: "beech", girth: 2.5, height: 1.3, size: 1024)
