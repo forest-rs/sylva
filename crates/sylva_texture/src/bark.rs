@@ -9,6 +9,10 @@ use alloc::vec::Vec;
 use dapple_encode::{Image, MaterialMaps};
 use dapple_field::program::Fingerprint;
 use dapple_graph::{RasterData, Recipe, RecipeError};
+use dapple_material::Grid;
+use dapple_material::module::{Bind, Context, Module};
+use dapple_material::resource::NoResources;
+use dapple_raster::Edge;
 use dapple_raster::typed::Storage;
 
 use crate::TextureError;
@@ -23,8 +27,8 @@ pub struct BarkSet {
     /// The maps the recipe's outputs fill: base colour, normals, roughness,
     /// occlusion.
     pub maps: MaterialMaps,
-    /// The recipe's content fingerprint.
-    pub fingerprint: Fingerprint,
+    /// The recipe's content fingerprint; `None` for a module bark.
+    pub fingerprint: Option<Fingerprint>,
 }
 
 /// Runs a dapple bark recipe and collects its outputs as material maps.
@@ -115,5 +119,63 @@ pub fn bark(recipe: &Recipe) -> Result<BarkSet, TextureError> {
             role: String::from("base_color"),
         });
     }
-    Ok(BarkSet { maps, fingerprint })
+    Ok(BarkSet {
+        maps,
+        fingerprint: Some(fingerprint),
+    })
+}
+
+/// Runs a dapple bark module at a stem's `girth` (circumference, metres)
+/// and `height` on the trunk (metres) over one tile, `size` texels a side.
+///
+/// Dapple's bark modules (`dapple_library::modules`: beech, silver birch,
+/// Scots pine, Norway spruce) are calibrated against measured bark
+/// reflectance and follow a stem's girth and height, where a recipe is one
+/// fixed stage. Their tile is one metre of bark, as `sylva_mesh`'s bark UVs
+/// map by default. The module's material is lowered to maps with
+/// `dapple_material::lower::maps`, which derives normals from its height.
+///
+/// # Errors
+///
+/// [`TextureError::Params`] for a zero `size`, or
+/// [`TextureError::Recipe`] when the module fails or yields no material.
+pub fn bark_module(
+    module: &dyn Module,
+    girth: f32,
+    height: f32,
+    size: u32,
+) -> Result<BarkSet, TextureError> {
+    if size == 0 {
+        return Err(TextureError::Params { name: "size" });
+    }
+    #[expect(clippy::cast_precision_loss, reason = "texture sizes are small")]
+    let grid = Grid {
+        width: size,
+        height: size,
+        origin: glam::Vec2::ZERO,
+        texel: glam::Vec2::splat(1.0 / size as f32),
+        edge: Edge::Wrap,
+    };
+    let failed = |e: &dyn core::fmt::Display| TextureError::Recipe(e.to_string());
+    let mut context = Context::new(grid, &NoResources);
+    let mut outputs = context
+        .instantiate(
+            module,
+            "bark",
+            Bind::new().scalar("girth", girth).scalar("height", height),
+        )
+        .map_err(|e| failed(&e))?;
+    let material = outputs
+        .take_material("material")
+        .ok_or_else(|| TextureError::Recipe(String::from("the module yields no material")))?;
+    let (maps, _) = dapple_material::lower::maps(&material).map_err(|e| failed(&e))?;
+    if maps.base_color.is_none() {
+        return Err(TextureError::Output {
+            role: String::from("base_color"),
+        });
+    }
+    Ok(BarkSet {
+        maps,
+        fingerprint: None,
+    })
 }

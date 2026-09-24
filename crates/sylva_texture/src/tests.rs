@@ -248,3 +248,26 @@ fn the_mask_covers_the_outline_area() {
         Err(TextureError::Params { name: "size" })
     ));
 }
+
+#[test]
+fn bark_modules_follow_the_stem() {
+    use dapple_library::modules::Birch;
+
+    // Birch's base darkens and fissures with girth; the same module at two
+    // girths gives two barks, each with colour, normals and roughness.
+    let young = crate::bark_module(&Birch, 0.3, 1.3, 32).expect("young birch");
+    let old = crate::bark_module(&Birch, 2.5, 0.3, 32).expect("old birch base");
+    for set in [&young, &old] {
+        assert!(set.maps.base_color.is_some() && set.maps.normal.is_some());
+        assert!(set.fingerprint.is_none());
+    }
+    let mean = |set: &crate::BarkSet| {
+        let values = set.maps.base_color.as_ref().expect("colour").values();
+        values.iter().sum::<f32>() / values.len() as f32
+    };
+    assert!(mean(&young) > mean(&old), "the old base is darker");
+    assert!(matches!(
+        crate::bark_module(&Birch, 1.0, 1.3, 0),
+        Err(TextureError::Params { name: "size" })
+    ));
+}

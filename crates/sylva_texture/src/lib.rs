@@ -8,7 +8,8 @@
 //!
 //! - [`bark()`] runs a dapple bark [`Recipe`](dapple_graph::Recipe), the same
 //!   data dapple bakes, into a tileable set whose tile matches the world size
-//!   of `sylva_mesh`'s bark UVs;
+//!   of `sylva_mesh`'s bark UVs, and [`bark_module`] runs one of dapple's
+//!   calibrated bark modules at a stem's girth and height;
 //! - [`leaf()`] makes a leaf set ([`LeafRecipe`]) in the UV frame of a
 //!   `sylva_foliage` leaf shape: opacity is the leaf's own coverage mask
 //!   ([`leaf_mask`], rasterized from its outline by `dapple_imaging`), and
@@ -39,7 +40,7 @@ mod bark;
 mod error;
 mod leaf;
 
-pub use bark::{BarkSet, bark};
+pub use bark::{BarkSet, bark, bark_module};
 pub use error::TextureError;
 pub use leaf::{LeafRecipe, LeafSet, leaf, leaf_mask};
 

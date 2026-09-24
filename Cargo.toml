@@ -83,12 +83,14 @@ clippy.allow_attributes = "warn"
 # `scalar-math` disables SIMD code paths, so results are bit-identical across
 # platforms. Determinism is a sylva contract, not a performance afterthought.
 # Dapple is pinned to a reviewed `main` revision until it publishes releases.
-dapple_encode = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "217266ec3ce74689936a25032ac25f066dbff8a5" }
-dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "217266ec3ce74689936a25032ac25f066dbff8a5" }
-dapple_graph = { git = "https://github.com/forest-rs/dapple", rev = "217266ec3ce74689936a25032ac25f066dbff8a5" }
-dapple_imaging = { git = "https://github.com/forest-rs/dapple", rev = "217266ec3ce74689936a25032ac25f066dbff8a5" }
-dapple_lab = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "217266ec3ce74689936a25032ac25f066dbff8a5" }
-dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "217266ec3ce74689936a25032ac25f066dbff8a5" }
+dapple_encode = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "2684b519466a929e944673a19f0f5365d3167d6c" }
+dapple_field = { git = "https://github.com/forest-rs/dapple", rev = "2684b519466a929e944673a19f0f5365d3167d6c" }
+dapple_graph = { git = "https://github.com/forest-rs/dapple", rev = "2684b519466a929e944673a19f0f5365d3167d6c" }
+dapple_imaging = { git = "https://github.com/forest-rs/dapple", rev = "2684b519466a929e944673a19f0f5365d3167d6c" }
+dapple_lab = { default-features = false, git = "https://github.com/forest-rs/dapple", rev = "2684b519466a929e944673a19f0f5365d3167d6c" }
+dapple_library = { git = "https://github.com/forest-rs/dapple", rev = "2684b519466a929e944673a19f0f5365d3167d6c" }
+dapple_material = { git = "https://github.com/forest-rs/dapple", rev = "2684b519466a929e944673a19f0f5365d3167d6c" }
+dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "2684b519466a929e944673a19f0f5365d3167d6c" }
 # Exedra is pinned to a reviewed `main` revision until it publishes releases.
 exedra_assembly = { default-features = false, features = ["std"], git = "https://github.com/forest-rs/exedra", rev = "f61e649a0b227bea787fd56029e2b751c678e4d5" }
 exedra_gltf = { git = "https://github.com/forest-rs/exedra", rev = "f61e649a0b227bea787fd56029e2b751c678e4d5" }
