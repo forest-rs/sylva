@@ -7,6 +7,8 @@
 // Metres and radians, +Z up.
 Species(
     name: "spruce",
+    // Grown in the open, green to the ground.
+    grown_in: Open,
     growth: Hierarchical((
         trunk: (
             length: 21.0,

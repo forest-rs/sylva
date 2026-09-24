@@ -29,6 +29,7 @@
 //!         segment_length: 0.5,
 //!     }),
 //!     foliage: None,
+//!     grown_in: Default::default(),
 //! };
 //! let grown = species.grow(1)?;
 //! assert_eq!(grown.skeleton.branches().len(), 1);
@@ -55,6 +56,24 @@ pub struct Species {
     /// Leaves on the grown skeleton's sites; `None` for a bare tree.
     #[cfg_attr(feature = "serde", serde(default))]
     pub foliage: Option<FoliageParams>,
+    /// The growing conditions the parameters describe. The same species
+    /// grows spreading in the open and slender in a stand; references and
+    /// fits compare a preset with trees grown as it declares.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub grown_in: GrowthCondition,
+}
+
+/// Where a tree grew, which shapes it as much as its species does.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum GrowthCondition {
+    /// Alone, with light from every side: a short bole, a low crown base
+    /// and a broad crown (parkland, pasture, hedgerow).
+    #[default]
+    Open,
+    /// Among neighbours in a closed stand: a tall, slender stem and a high,
+    /// narrow crown.
+    Stand,
 }
 
 /// A growth backend and its parameters.

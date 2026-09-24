@@ -7,14 +7,16 @@
 // Metres and radians, +Z up.
 Species(
     name: "oak",
+    // Grown in the open, as parkland oaks are.
+    grown_in: Open,
     growth: Hierarchical((
         trunk: (
-            length: 9.0,
+            length: 9.28,
             length_jitter: 0.2,
             lean: 0.06,
             // A slight lean, and gravitropism that keeps gnarl from drifting
             // the stem far off vertical.
-            shape: (gnarl: 0.05, gnarl_wavelength: 3.0, up: 0.03),
+            shape: (gnarl: 0.05, gnarl_wavelength: 3.0, up: 0.05),
         ),
         levels: [
             // Scaffold limbs: few and massive, the lowest long and near
@@ -28,9 +30,9 @@ Species(
                 arrangement: Spiral(divergence: 2.39996),
                 roll_jitter: 0.45,
                 position_jitter: 0.8,
-                angle: [(0.0, 1.4), (0.5, 1.05), (1.0, 0.6)],
+                angle: [(0.0, 1.65), (0.5, 1.237), (1.0, 0.707)],
                 angle_jitter: 0.2,
-                length: [(0.0, 1.25), (0.5, 1.05), (1.0, 0.8)],
+                length: [(0.0, 1.491), (0.5, 1.253), (1.0, 0.954)],
                 length_jitter: 0.2,
                 balance: 1.0,
                 // Crooked scaffold: broad waves plus irregular elbows.
@@ -120,7 +122,7 @@ Species(
         envelope: Some((
             base: 2.4,
             height: 12.5,
-            radius: 12.5,
+            radius: 10.8,
             profile: [(0.0, 0.7), (0.2, 0.95), (0.45, 1.0), (0.75, 0.85), (1.0, 0.4)],
             from_level: 0,
             min_fraction: 0.3,
@@ -132,12 +134,13 @@ Species(
         // Leaves crowd the outer shell; inside the crown, where the light
         // is gone, most twigs are bare, so the great limbs show.
         shade: Some((shell: 0.3, interior: 0.1)),
-        // The exponent keeps the stem within the reference's slenderness
-        // (height over breast-height diameter at least 10) on every seed.
+        // Trunk length, scaffold length and angle, the envelope's radius
+        // and this exponent come from fitting the open-grown oak reference
+        // (`species_gallery --fit`).
         // Twig tips are 4 mm; the skeleton stops at twigs, so each metre of
         // centerline also carries the flow of the unmodeled shoots on it.
         // The bole keeps thickening below the lowest limb.
-        radii: (tip_radius: 0.004, exponent: 2.68, shoots_per_metre: 16.0, bole_taper: 0.08),
+        radii: (tip_radius: 0.004, exponent: 2.748, shoots_per_metre: 16.0, bole_taper: 0.08),
         segment_length: 0.3,
     )),
     // Pedunculate-oak leaves: obovate, five rounded lobes a side, clustered

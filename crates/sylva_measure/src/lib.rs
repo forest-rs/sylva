@@ -17,6 +17,13 @@
 //! `dapple_lab::fit` targets, so the numbers a regression test checks are
 //! also the loss an inverse fit minimizes.
 //!
+//! A tree's form depends on where it grew as much as on its species: in
+//! the open it keeps a short bole, a low crown and a spread wider than its
+//! height; in a stand it grows tall and slender with a high, narrow crown.
+//! Each [`Range`] may name the [`GrowthCondition`] it describes, and
+//! [`Reference::for_condition`] keeps those that hold for a preset's
+//! `Species::grown_in`.
+//!
 //! Every measurement's name is listed in [`TreeMeasures::values`]; a
 //! reference may bound any of them, and names it does not know stay
 //! unbounded.
@@ -30,15 +37,17 @@
 //! - Pretzsch, H., Biber, P., Uhl, E., et al. (2015). *Crown size and
 //!   growing space requirement of common tree species in urban centres,
 //!   parks, and forests.* Urban Forestry & Urban Greening 14, 466–479:
-//!   open-grown crown radius, height and crown projection against stem
-//!   diameter.
+//!   crown radius, height and crown projection against stem diameter for
+//!   **open-grown** trees of 22 common species.
 //! - Hemery, G. E., Savill, P. S., Pryor, S. N. (2005). *Applications of
 //!   the crown diameter–stem diameter relationship for different species of
 //!   broadleaved trees.* Forest Ecology and Management 215, 285–294: crown
-//!   to stem diameter ratios of British broadleaves, oak included.
+//!   to stem diameter ratios of 11 broadleaves (oak, beech and birch among
+//!   them) sampled largely in British woodland and plantations, so of
+//!   **stand-grown** form.
 //! - Kantola, A., Mäkelä, A. (2004). *Crown development in Norway spruce
 //!   [Picea abies (L.) Karst.].* Trees 18, 408–421: crown length, width and
-//!   branch structure of Norway spruce.
+//!   branch structure of 29 **stand-grown** Norway spruce of three ages.
 //!
 //! Each range records which source it follows, or that it is a review
 //! target of sylva's own where the literature gives no number (sky
@@ -80,9 +89,14 @@ use dapple_lab::Report;
 use dapple_lab::fit::Target;
 use sylva_skeleton::Skeleton;
 use sylva_skeleton::glam::{Vec2, Vec3};
+pub use sylva_species::GrowthCondition;
 
 /// Breast height, in metres, where stem diameter is measured.
 pub const BREAST_HEIGHT: f32 = 1.3;
+
+/// A root-stem limb is major when its base diameter is at least this
+/// fraction of the stem's breast-height diameter.
+pub const MAJOR_LIMB: f32 = 0.25;
 
 /// Side views the silhouette statistics average over.
 const VIEWS: usize = 4;
@@ -112,6 +126,9 @@ pub struct TreeMeasures {
     /// between a branch's first internode and its parent's tangent, per
     /// order from 1.
     pub branch_angles: Vec<(u32, f32, f32)>,
+    /// Limbs on the root stem at least [`MAJOR_LIMB`] of its breast-height
+    /// diameter across at their base: an open-grown oak's few great limbs.
+    pub major_limbs: u32,
     /// Sky fraction through the crown's side silhouette.
     pub sky_fraction: f32,
     /// Height over width of the crown's side silhouette.
@@ -195,6 +212,7 @@ impl TreeMeasures {
                 "deg",
             ));
         }
+        out.push(("form.major_limbs".into(), f64::from(self.major_limbs), ""));
         out.push((
             "crown.sky_fraction".into(),
             f64::from(self.sky_fraction),
@@ -254,6 +272,9 @@ pub struct Range {
     pub hi: f64,
     /// Where the range comes from.
     pub source: String,
+    /// The growing condition it describes; `None` holds in either.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub condition: Option<GrowthCondition>,
 }
 
 impl Range {
@@ -265,7 +286,15 @@ impl Range {
             lo,
             hi,
             source: source.into(),
+            condition: None,
         }
+    }
+
+    /// This range, describing trees grown in `condition` only.
+    #[must_use]
+    pub fn grown_in(mut self, condition: GrowthCondition) -> Self {
+        self.condition = Some(condition);
+        self
     }
 }
 
@@ -280,6 +309,21 @@ pub struct Reference {
 }
 
 impl Reference {
+    /// The ranges that hold for trees grown in `condition`: those for that
+    /// condition and those for either.
+    #[must_use]
+    pub fn for_condition(&self, condition: GrowthCondition) -> Self {
+        Self {
+            species: self.species.clone(),
+            ranges: self
+                .ranges
+                .iter()
+                .filter(|r| r.condition.is_none_or(|c| c == condition))
+                .cloned()
+                .collect(),
+        }
+    }
+
     /// Fit targets for the ranges whose names start with `prefix`: each
     /// asks for the range's middle, with half its width as the tolerance,
     /// so a value at either end of the range costs one unit of loss.
@@ -373,6 +417,10 @@ pub fn measure(skeleton: &Skeleton, leaf_radius: f32) -> TreeMeasures {
         branch_angles.push((order, mean, libm::sqrtf(variance)));
     }
 
+    let major_limbs = branches
+        .iter()
+        .filter(|b| b.order == 1 && 2.0 * b.nodes[0].radius >= MAJOR_LIMB * dbh)
+        .count();
     let (sky_fraction, silhouette_aspect) = silhouette(skeleton, &leaves, leaf_radius);
     TreeMeasures {
         height,
@@ -381,6 +429,7 @@ pub fn measure(skeleton: &Skeleton, leaf_radius: f32) -> TreeMeasures {
         dbh,
         stem_taper,
         branch_angles,
+        major_limbs: u32::try_from(major_limbs).unwrap_or(u32::MAX),
         sky_fraction,
         silhouette_aspect,
         sites: leaves.len(),

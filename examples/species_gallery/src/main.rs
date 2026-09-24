@@ -1029,13 +1029,16 @@ mod tests {
     }
 
     /// Every preset's allometry and crown form stay inside its reference
-    /// ranges (`<name>_reference.ron`) for seeds 1 to 3. Texture colour is
+    /// ranges (`<name>_reference.ron`) for the growing condition it
+    /// declares, for seeds 1 to 3. Texture colour is
     /// checked by the gallery's `--measure` run, which realizes textures.
     #[test]
     fn presets_meet_their_reference_allometry() {
         for ((species, ..), reference) in PRESETS.iter().zip(super::REFERENCES) {
             let species: Species = ron::from_str(species).expect("species");
-            let reference: sylva_measure::Reference = ron::from_str(reference).expect("reference");
+            let reference = ron::from_str::<sylva_measure::Reference>(reference)
+                .expect("reference")
+                .for_condition(species.grown_in);
             let targets = crate::measure::form_targets(&reference);
             assert!(!targets.is_empty(), "{} has form ranges", species.name);
             for seed in 1..=3 {

@@ -11,13 +11,14 @@ categories = ["graphics", "game-development", "no-std"]
 publish = false
 
 [features]
-serde = ["dep:serde"]
+serde = ["dep:serde", "sylva_species/serde"]
 
 [dependencies]
 dapple_lab.workspace = true
 libm.workspace = true
 serde = { optional = true, workspace = true }
 sylva_skeleton.workspace = true
+sylva_species.workspace = true
 
 [lints]
 workspace = true

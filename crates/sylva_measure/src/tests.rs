@@ -8,7 +8,7 @@ use sylva_skeleton::glam::Vec3;
 use sylva_skeleton::passes::{FrameParams, compute_frames};
 use sylva_skeleton::{Attachment, Branch, BranchId, Frame, Node, Site, Skeleton};
 
-use crate::{Range, Reference, measure};
+use crate::{GrowthCondition, Range, Reference, measure};
 
 /// A 10 m stem tapering from 0.3 m to 0.1 m radius, with four level
 /// branches at 6 m, each carrying sites along its outer half.
@@ -97,6 +97,8 @@ fn allometry_reads_the_skeleton() {
         m.sky_fraction
     );
     assert!(m.silhouette_aspect > 0.0);
+    // 10 cm arms on a 55 cm stem are not major limbs.
+    assert_eq!(m.major_limbs, 0);
 }
 
 #[test]
@@ -120,4 +122,22 @@ fn reports_bound_measurements_by_the_reference() {
     assert_eq!(targets[0].value, 10.0);
     assert_eq!(targets[0].tolerance, 2.0);
     assert_eq!(m.value("allometry.height"), Some(10.0));
+}
+
+#[test]
+fn references_select_ranges_by_growth_condition() {
+    let reference = Reference {
+        species: "test".into(),
+        ranges: vec![
+            Range::new("allometry.slenderness", 10.0, 20.0, "a").grown_in(GrowthCondition::Open),
+            Range::new("allometry.slenderness", 40.0, 80.0, "b").grown_in(GrowthCondition::Stand),
+            Range::new("allometry.height", 10.0, 30.0, "c"),
+        ],
+    };
+    let open = reference.for_condition(GrowthCondition::Open);
+    assert_eq!(open.ranges.len(), 2);
+    assert!(open.ranges.iter().all(|r| r.source != "b"));
+    let stand = reference.for_condition(GrowthCondition::Stand);
+    assert_eq!(stand.ranges.len(), 2);
+    assert!(stand.ranges.iter().any(|r| r.source == "b"));
 }

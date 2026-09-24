@@ -144,7 +144,7 @@ pub(crate) fn run(
         let Some(reference) = &preset.reference else {
             continue;
         };
-        let reference: Reference = ron::from_str(reference)?;
+        let reference = ron::from_str::<Reference>(reference)?.for_condition(species.grown_in);
         let colours = colour(&species, preset)?;
         let mut row = Vec::new();
         for &seed in seeds {
@@ -387,7 +387,8 @@ pub(crate) fn fit_oak(dir: &Path, presets: &[Preset]) -> Result<(), Box<dyn std:
         .find(|p| ron::from_str::<Species>(&p.species).is_ok_and(|s| s.name == "oak"))
         .ok_or("no oak preset")?;
     let species: Species = ron::from_str(&preset.species)?;
-    let reference: Reference = ron::from_str(preset.reference.as_deref().ok_or("no reference")?)?;
+    let reference = ron::from_str::<Reference>(preset.reference.as_deref().ok_or("no reference")?)?
+        .for_condition(species.grown_in);
     let targets = form_targets(&reference);
     let Growth::Hierarchical(hierarchy) = &species.growth else {
         return Err("the oak grows hierarchically".into());
