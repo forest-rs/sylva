@@ -220,6 +220,17 @@ fn place_children(
     let [lo, hi] = level.span;
     let count = match level.count {
         Count::Fixed(n) => n,
+        Count::Range { min, max } => {
+            #[expect(clippy::cast_precision_loss, reason = "counts are small")]
+            let spread = (max - min) as f32 + 1.0;
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "unit_f32 is in [0, 1), so the draw is in [0, spread)"
+            )]
+            let draw = (parent_key.with(tag("count")).unit_f32() * spread) as u32;
+            min + draw.min(max - min)
+        }
         Count::PerMetre(density) => keyed_round(
             density * parent_length * (hi - lo),
             parent_key.with(tag("count")),

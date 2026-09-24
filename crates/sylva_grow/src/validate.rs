@@ -78,6 +78,11 @@ pub(crate) fn check(h: &Hierarchy) -> Result<(), GrowError> {
         let at = Some(index);
         match level.count {
             Count::Fixed(_) => {}
+            Count::Range { min, max } => {
+                if min > max {
+                    return Err(invalid(at, "count"));
+                }
+            }
             Count::PerMetre(density) => {
                 if !(density.is_finite() && density >= 0.0) {
                     return Err(invalid(at, "count"));

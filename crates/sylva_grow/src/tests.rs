@@ -392,3 +392,17 @@ fn sites_point_away_from_their_branch_and_crowd_the_tip() {
         "every twig carries its whorl: {whorls} tip sites on {twigs} twigs"
     );
 }
+
+#[test]
+fn ranged_counts_vary_by_seed_within_bounds() {
+    let mut h = fixture();
+    h.levels.truncate(1);
+    h.levels[0].count = Count::Range { min: 3, max: 6 };
+    let counts: Vec<usize> = (0..24)
+        .map(|seed| grow(&h, seed).expect("grow").skeleton.branches().len() - 1)
+        .collect();
+    assert!(counts.iter().all(|c| (3..=6).contains(c)), "{counts:?}");
+    assert!(counts.contains(&3) && counts.contains(&6), "{counts:?}");
+    h.levels[0].count = Count::Range { min: 4, max: 2 };
+    assert!(grow(&h, 1).is_err());
+}

@@ -163,6 +163,14 @@ impl Default for Level {
 pub enum Count {
     /// Exactly this many.
     Fixed(u32),
+    /// Between `min` and `max` inclusive, keyed per parent, so each tree
+    /// (and each parent) draws its own count.
+    Range {
+        /// Fewest children.
+        min: u32,
+        /// Most children.
+        max: u32,
+    },
     /// This many per metre of the parent's span; the fractional part rounds
     /// up with keyed probability, so the expected count is exact.
     PerMetre(f32),
