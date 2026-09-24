@@ -114,27 +114,34 @@ impl Default for Junction {
 }
 
 /// Shape of an embedded child's collar.
+///
+/// The collar is a fillet: every ring vertex swells by how close it sits to
+/// the parent's surface, not by how far along the child it is, so the
+/// crotch side and the far side of an angled fork both meet the parent at a
+/// shallow angle, and the normals there blend into the parent's. The swell
+/// is largest on the parent's surface and eases out sharply, then slowly,
+/// over `length` child radii above it.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Collar {
-    /// Collar length, as a multiple of the parent's radius at the attachment
-    /// (so the collar reaches past the parent's surface).
+    /// How far the collar reaches out from the parent's surface, as a
+    /// multiple of the child's base radius.
     pub length: f32,
-    /// Radius multiplier at the child's base, fading to 1 over the collar.
+    /// Radius multiplier where the child meets the parent's surface.
     pub flare: f32,
-    /// How far collar normals blend toward the parent's surface normal at
-    /// the base, in `[0, 1]`.
+    /// How far collar normals blend toward the parent's surface normal
+    /// where the child meets it, in `[0, 1]`.
     pub normal_blend: f32,
-    /// Extra rings placed along the collar.
+    /// Extra rings placed where the child leaves the parent.
     pub rings: u32,
 }
 
 impl Default for Collar {
     fn default() -> Self {
         Self {
-            length: 1.6,
-            flare: 1.35,
-            normal_blend: 0.6,
-            rings: 3,
+            length: 2.5,
+            flare: 1.4,
+            normal_blend: 0.8,
+            rings: 6,
         }
     }
 }

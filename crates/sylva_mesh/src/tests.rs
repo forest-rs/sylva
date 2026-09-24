@@ -214,33 +214,50 @@ fn embedded_children_flare_a_collar_blend_normals_and_record_provenance() {
         "every vertex names its branch"
     );
     let child_radius = skeleton.branches()[1].nodes[0].radius;
-    let mut base_ring = 0;
-    let mut diagonal = 0;
+    let trunk_radius = skeleton.branches()[0].sample(0.5).radius;
+    let reach = collar.length * child_radius;
+    let (mut near, mut far, mut diagonal) = (0, 0, 0);
     for ((p, n), &b) in tri.positions.iter().zip(&tri.normals).zip(branches) {
-        if b != 1 || p[0] != 0.0 {
+        if b != 1 {
             continue;
         }
-        base_ring += 1;
         let p = Vec3::from_array(*p);
         let n = Vec3::from_array(*n);
-        let r = (p - Vec3::new(0.0, 0.0, 2.0)).length();
-        assert!(
-            (r - child_radius * collar.flare).abs() < 1e-4,
-            "the collar flares the base: {r}"
-        );
-        // The trunk's surface normal here is horizontal; the child's own
-        // radial is in the YZ plane. Blending tilts toward the trunk's.
-        let child_radial = Vec3::new(0.0, p.y, p.z - 2.0).normalize();
-        if p.y.abs() > 0.3 * r && (p.z - 2.0).abs() > 0.3 * r {
-            diagonal += 1;
-            let trunk_normal = Vec3::new(0.0, p.y, 0.0).normalize();
+        // Distance from the child's axis, and height above the trunk.
+        let child_radial = Vec3::new(0.0, p.y, p.z - 2.0);
+        let r = child_radial.length();
+        let height = Vec3::new(p.x, p.y, 0.0).length() - trunk_radius;
+        if (0.0..0.2 * reach).contains(&height) {
+            near += 1;
             assert!(
-                n.dot(trunk_normal) > child_radial.dot(trunk_normal) + 1e-3,
-                "collar normal leans to the parent: p {p:?} n {n:?} radial {child_radial:?}"
+                r > child_radius * (1.0 + 0.5 * (collar.flare - 1.0)),
+                "the collar swells where the child meets the trunk: {r} at {p:?}"
+            );
+            // The trunk's surface normal here is horizontal; the child's own
+            // radial is in the YZ plane. Blending tilts toward the trunk's.
+            if p.y.abs() > 0.3 * r {
+                diagonal += 1;
+                let trunk_normal = Vec3::new(p.x, p.y, 0.0).normalize();
+                let child_radial = child_radial.normalize();
+                assert!(
+                    n.dot(trunk_normal) > child_radial.dot(trunk_normal) + 1e-3,
+                    "collar normal leans to the parent: p {p:?} n {n:?}"
+                );
+            }
+        } else if height > 1.2 * reach {
+            // The child tapers from its base radius; its tip cap's center
+            // sits on the axis.
+            far += 1;
+            assert!(
+                r <= child_radius * 1.001,
+                "past its reach the collar is gone: {r}"
             );
         }
     }
-    assert!(base_ring > 0, "child base ring found");
+    assert!(
+        near > 0 && far > 0,
+        "collar vertices found: {near} near, {far} far"
+    );
     assert!(diagonal > 0, "diagonal collar vertices checked");
 }
 

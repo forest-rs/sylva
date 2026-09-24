@@ -172,16 +172,22 @@ struct Station {
 enum Profile {
     Plain,
     Collar {
-        length: f32,
+        /// How far the collar reaches out from the parent's surface, in
+        /// metres.
+        reach: f32,
+        /// Arc lengths along the child between which collar rings go.
+        ring_span: (f32, f32),
         rings: u32,
-        flare: f32,
-        /// Largest flared radius: a little inside the parent, so a child
-        /// nearly as thick as its parent cannot flare out through the far
-        /// side of it as a visible sleeve.
+        /// Extra radius at the parent's surface, in metres.
+        swell: f32,
+        /// Largest flared radius inside the parent: a little inside its
+        /// surface, so a child nearly as thick as its parent cannot flare
+        /// out through the far side of it as a visible sleeve.
         cap: f32,
         normal_blend: f32,
         parent_point: Vec3,
         parent_tangent: Vec3,
+        parent_radius: f32,
     },
     Flare {
         flare: RootFlare,
@@ -279,22 +285,63 @@ impl Lobes {
 }
 
 impl Profile {
-    /// Radius at arc length `s` and ring angle `theta` of a station whose
-    /// plain radius is `radius`.
-    fn radius(&self, radius: f32, s: f32, theta: f32) -> f32 {
-        let scaled = radius * self.scale(s, theta);
+    /// Radius of `station`'s ring at angle `theta`.
+    fn radius(&self, station: &Station, theta: f32) -> f32 {
+        let radius = station.radius;
         match *self {
-            // The cap only limits the flare; it never thins the tube itself.
-            Self::Collar { cap, .. } => scaled.min(cap.max(radius)),
-            _ => scaled,
+            Self::Plain => radius,
+            Self::Collar { swell, cap, .. } => {
+                let (w, height) = self.collar_weight(station, theta);
+                let flared = radius + swell * w;
+                if height < 0.0 {
+                    // The cap only limits the flare inside the parent; it
+                    // never thins the tube itself.
+                    flared.min(cap.max(radius))
+                } else {
+                    flared
+                }
+            }
+            Self::Flare { .. } => radius * self.scale(station.s, theta),
         }
     }
 
-    /// Radius multiplier at arc length `s` and ring angle `theta`.
+    /// For a collar, the fillet weight in `[0, 1]` of the plain ring point
+    /// at `theta`, and that point's height above the parent's surface.
+    ///
+    /// The weight is 1 on the parent's surface and eases to 0 at the
+    /// collar's reach above it, sharply at first, so the swollen child meets
+    /// the parent at a shallow angle, like a fillet. Below the surface it
+    /// fades over half the parent's radius: points deep inside the parent
+    /// are hidden and stay unflared. Other profiles have weight 0.
+    fn collar_weight(&self, station: &Station, theta: f32) -> (f32, f32) {
+        let Self::Collar {
+            reach,
+            parent_point,
+            parent_tangent,
+            parent_radius,
+            ..
+        } = *self
+        else {
+            return (0.0, 0.0);
+        };
+        let frame = station.frame;
+        let radial = frame.normal * libm::cosf(theta) + frame.binormal() * libm::sinf(theta);
+        let p = station.position + radial * station.radius - parent_point;
+        let height = (p - parent_tangent * p.dot(parent_tangent)).length() - parent_radius;
+        let w = if height >= 0.0 {
+            let x = 1.0 - (height / reach.max(1e-6)).min(1.0);
+            x * x
+        } else {
+            (1.0 + height / (0.5 * parent_radius).max(1e-6)).max(0.0)
+        };
+        (w, height)
+    }
+
+    /// Radius multiplier at arc length `s` and ring angle `theta`, for a
+    /// root flare.
     fn scale(&self, s: f32, theta: f32) -> f32 {
         match *self {
-            Self::Plain => 1.0,
-            Self::Collar { length, flare, .. } => 1.0 + (flare - 1.0) * fade(s, length),
+            Self::Plain | Self::Collar { .. } => 1.0,
             Self::Flare { flare: f, lobes } => {
                 let decay = libm::expf(-s / f.height.max(1e-4));
                 let lobe = if lobes.count == 0 {
@@ -311,15 +358,6 @@ impl Profile {
 /// `angle` wrapped into `[0, TAU)`.
 fn wrap(angle: f32) -> f32 {
     angle - TAU * libm::floorf(angle / TAU)
-}
-
-/// 1 at `s = 0`, easing to 0 at `s = length`.
-fn fade(s: f32, length: f32) -> f32 {
-    if length <= 0.0 {
-        return 0.0;
-    }
-    let x = (s / length).clamp(0.0, 1.0);
-    1.0 - x * x * (3.0 - 2.0 * x)
 }
 
 /// Meshes every branch of `skeleton` as a bark tube.
@@ -706,14 +744,28 @@ fn profile_for(skeleton: &Skeleton, branch: &Branch, params: &MeshParams, welded
                 return Profile::Plain;
             };
             let sample = parent.sample(attachment.t);
+            let child_radius = branch.nodes[0].radius.max(MIN_RADIUS);
+            let parent_radius = sample.radius.max(MIN_RADIUS);
+            let reach = collar.length * child_radius;
+            // The child's surface leaves the parent's between about half the
+            // parent's radius (its far side, at a right angle) and the
+            // parent's radius over the fork's sine (its crotch side).
+            let sine = sample
+                .frame
+                .tangent
+                .cross(branch.nodes[0].frame.tangent)
+                .length()
+                .max(0.3);
             Profile::Collar {
-                length: collar.length * sample.radius.max(MIN_RADIUS),
+                reach,
+                ring_span: (0.5 * parent_radius, parent_radius / sine + reach),
                 rings: collar.rings,
-                flare: collar.flare,
-                cap: 0.97 * sample.radius,
+                swell: (collar.flare - 1.0) * child_radius,
+                cap: 0.97 * parent_radius,
                 normal_blend: collar.normal_blend,
                 parent_point: sample.position,
                 parent_tangent: sample.frame.tangent,
+                parent_radius,
             }
         }
         None => params
@@ -756,15 +808,18 @@ fn stations(
     let mut at: Vec<f32> = Vec::new();
     at.push(layout.start);
     // Profile rings near the base, where the radius changes fastest.
-    let (extra, extent) = match *profile {
-        Profile::Plain => (0, 0.0),
-        Profile::Collar { length, rings, .. } => (rings, length),
-        Profile::Flare { flare, .. } => (flare.rings, 3.0 * flare.height),
+    let (extra, from, to) = match *profile {
+        Profile::Plain => (0, 0.0, 0.0),
+        Profile::Collar {
+            ring_span, rings, ..
+        } => (rings, ring_span.0, ring_span.1),
+        Profile::Flare { flare, .. } => (flare.rings, 0.0, 3.0 * flare.height),
     };
-    let extent = extent.min(0.5 * total);
+    let to = to.min(0.5 * total);
+    let from = from.min(to);
     for k in 1..=extra {
         #[expect(clippy::cast_precision_loss, reason = "ring counts are small")]
-        at.push(extent * k as f32 / (extra + 1) as f32);
+        at.push(from + (to - from) * k as f32 / (extra + 1) as f32);
     }
     let added_before = at.len();
     // Curvature- and spacing-driven rings at skeleton nodes.
@@ -845,7 +900,7 @@ fn ring_point(
 ) -> (Vec3, Vec3) {
     let frame = station.frame;
     let radial = frame.normal * libm::cosf(theta) + frame.binormal() * libm::sinf(theta);
-    let radius_at = |st: &Station| profile.radius(st.radius, st.s, theta);
+    let radius_at = |st: &Station| profile.radius(st, theta);
     let r = radius_at(station);
     let position = station.position + radial * r;
     // Slope of the modulated radius along the centerline tilts the normal
@@ -859,14 +914,13 @@ fn ring_point(
     };
     let mut normal = (radial - frame.tangent * slope).normalize_or(radial);
     if let Profile::Collar {
-        length,
         normal_blend,
         parent_point,
         parent_tangent,
         ..
     } = *profile
     {
-        let w = normal_blend * fade(station.s, length);
+        let w = normal_blend * profile.collar_weight(station, theta).0;
         if w > 0.0 {
             let away = position - parent_point;
             let parent_normal = (away - parent_tangent * away.dot(parent_tangent))
