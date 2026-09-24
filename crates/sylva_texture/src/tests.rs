@@ -168,7 +168,8 @@ fn leaf_opacity_is_the_leaf_shapes_own_mask() {
             .iter()
             .all(|w| (0.0..=recipe.translucency).contains(w))
     );
-    assert!((weight[32 * 64 + 20] - recipe.translucency).abs() < 0.05);
+    // Off the veins, the blade transmits nearly the full weight.
+    assert!(weight[32 * 64 + 20] > 0.9 * recipe.translucency);
     assert!(
         weight[32 * 64 + 32] < weight[32 * 64 + 20],
         "the midrib transmits less"

@@ -72,9 +72,11 @@ impl Default for LeafRecipe {
             green: [0.026, 0.056, 0.017],
             vein: [0.06, 0.11, 0.03],
             // Transmitted light is a vivid yellow-green: chlorophyll absorbs
-            // red and blue on the way through.
-            translucent: [0.24, 0.46, 0.05],
-            translucency: 0.6,
+            // red and blue on the way through. A thin blade transmits more
+            // green than it reflects, which is what makes a backlit crown
+            // glow.
+            translucent: [0.3, 0.55, 0.06],
+            translucency: 0.72,
             vein_width: 0.012,
             vein_relief: 0.0004,
             mottle: 0.15,
