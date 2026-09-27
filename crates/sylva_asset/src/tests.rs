@@ -11,7 +11,7 @@ use sylva_mesh::{BRANCH_LAYER, MeshParams};
 use sylva_skeleton::passes::{FrameParams, PipeModel, compute_frames, pipe_model_radii};
 use sylva_skeleton::{Attachment, Branch, BranchId, Frame, Node, Site, Skeleton};
 
-use crate::{MaterialRole, TreeMaterials, build_asset};
+use crate::{GeneratedTree, MaterialRole, TreeMaterials, build_asset};
 
 /// A trunk with a fan of side branches, each carrying twigs full of leaf
 /// sites.
@@ -113,7 +113,13 @@ fn every_level_becomes_meshes_with_materials_and_provenance() {
     });
     policy.levels[3].clusters = None;
     let chain = build_lods(&skeleton, &foliage, &MeshParams::default(), &policy).expect("chain");
-    let asset = build_asset(&skeleton, &foliage, &chain, &TreeMaterials::default()).expect("asset");
+    let source = GeneratedTree::new(
+        skeleton,
+        Some(&FoliageParams::default()),
+        TreeMaterials::default(),
+    )
+    .expect("source");
+    let asset = build_asset(&source, &chain, &crate::RasterOptions::default()).expect("asset");
     assert_eq!(
         asset.lods.len(),
         chain.levels.len() + 1,
@@ -173,7 +179,7 @@ fn every_level_becomes_meshes_with_materials_and_provenance() {
         let expected = Vec3::from_array(merged.positions[4 * plane + 2]);
         assert!(corner.distance(expected) < 1e-4, "{corner} vs {expected}");
     }
-    let branches = u32::try_from(skeleton.branches().len()).expect("few branches");
+    let branches = u32::try_from(source.skeleton().branches().len()).expect("few branches");
     for lod in &asset.lods {
         for mesh in &lod.meshes {
             assert!(
@@ -203,4 +209,173 @@ fn every_level_becomes_meshes_with_materials_and_provenance() {
         }
     }
     assert_eq!(asset.report.levels, 5);
+}
+
+#[test]
+fn both_realizations_retain_the_same_identified_leaves() {
+    let (skeleton, _) = tree();
+    let params = FoliageParams {
+        whorl: 3,
+        shape: sylva_foliage::LeafShape {
+            leaflets: 12,
+            lobes: 0,
+            lobe_depth: 0.0,
+            auricle: 0.0,
+            ..sylva_foliage::LeafShape::default()
+        },
+        ..FoliageParams::default()
+    };
+    let source =
+        GeneratedTree::new(skeleton, Some(&params), TreeMaterials::default()).expect("source");
+    let mut policy = LodPolicy::default();
+    policy.levels.truncate(2);
+    policy.impostor = None;
+    let chain = build_lods(
+        source.skeleton(),
+        source.foliage(),
+        &MeshParams::default(),
+        &policy,
+    )
+    .expect("chain");
+    let raster = build_asset(&source, &chain, &crate::RasterOptions::default()).expect("raster");
+    let detailed = crate::build_detailed(&source, &MeshParams::default()).expect("detailed");
+    let full = raster.lods[0].leaves.as_ref().expect("leaves");
+    assert_eq!(
+        full.instances, detailed.leaves.instances,
+        "same identity, placement and shading data"
+    );
+    assert_eq!(
+        detailed.report.instances,
+        source.foliage().instances.len() as u64
+    );
+    assert_eq!(detailed.leaves.templates.len(), params.variants as usize);
+    assert!(detailed.report.template_triangles < detailed.report.instanced_triangles);
+    for leaf in &raster.lods[1]
+        .leaves
+        .as_ref()
+        .expect("reduced leaves")
+        .instances
+    {
+        let original = detailed
+            .leaves
+            .instances
+            .iter()
+            .find(|other| other.leaf == leaf.leaf)
+            .expect("retained identity");
+        assert_eq!(leaf.transform.translation, original.transform.translation);
+        assert_eq!(leaf.canopy_normal, original.canopy_normal);
+        assert!(
+            leaf.transform.matrix3.x_axis.length() > original.transform.matrix3.x_axis.length(),
+            "legacy area compensation remains"
+        );
+    }
+    for mesh in &detailed.leaves.templates {
+        assert!(mesh.validate_fast().is_empty(), "valid tissue");
+    }
+}
+
+#[test]
+fn source_rejects_duplicate_site_identity() {
+    let (mut skeleton, _) = tree();
+    let site = skeleton.sites()[0];
+    skeleton
+        .push_site(site)
+        .expect("skeleton permits duplicate sites");
+    assert!(matches!(
+        GeneratedTree::new(
+            skeleton,
+            Some(&FoliageParams::default()),
+            TreeMaterials::default()
+        ),
+        Err(crate::AssetError::Source("duplicate site identity"))
+    ));
+}
+
+#[test]
+fn bare_tree_has_no_foliage_templates_or_instances() {
+    let (skeleton, _) = tree();
+    let source = GeneratedTree::new(skeleton, None, TreeMaterials::default()).expect("bare source");
+    let detailed = crate::build_detailed(&source, &MeshParams::default()).expect("bare geometry");
+    assert!(detailed.leaves.templates.is_empty());
+    assert!(detailed.leaves.instances.is_empty());
+    assert_eq!(detailed.report.instanced_triangles, 0);
+    assert!(detailed.report.bark_triangles > 0);
+}
+
+#[test]
+fn merged_normal_policy_preserves_surface_geometry_and_source_shading_data() {
+    let (skeleton, _) = tree();
+    let source = GeneratedTree::new(
+        skeleton,
+        Some(&FoliageParams::default()),
+        TreeMaterials::default(),
+    )
+    .expect("source");
+    let mut policy = LodPolicy::default();
+    policy.levels.truncate(1);
+    policy.levels[0].leaf_detail = sylva_lod::LeafDetail::Mesh { stations: 8 };
+    policy.impostor = None;
+    let chain = build_lods(
+        source.skeleton(),
+        source.foliage(),
+        &MeshParams::default(),
+        &policy,
+    )
+    .expect("chain");
+    let canopy = build_asset(&source, &chain, &crate::RasterOptions::default()).expect("canopy");
+    let surface = build_asset(
+        &source,
+        &chain,
+        &crate::RasterOptions {
+            leaf_normals: crate::LeafNormals::Surface,
+            ..crate::RasterOptions::default()
+        },
+    )
+    .expect("surface");
+    let extract = |asset: &crate::TreeAsset| {
+        asset.lods[0].meshes[1]
+            .mesh
+            .to_trimesh(&ExtractParams {
+                normals: NormalsSource::CustomOnly,
+                ..ExtractParams::default()
+            })
+            .0
+    };
+    let a = extract(&canopy);
+    let b = extract(&surface);
+    // Corner normals can split render vertices differently; compare the
+    // triangle streams rather than requiring the same render-buffer layout.
+    let expanded = |mesh: &exedra_mesh::TriMesh| {
+        mesh.indices
+            .iter()
+            .map(|&i| mesh.positions[i as usize])
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(expanded(&a), expanded(&b));
+    assert_ne!(a.normals, b.normals);
+    let first = &source.foliage().instances[0];
+    assert_eq!(a.normals[0], first.canopy_normal.to_array());
+    let template = chain.levels[0].templates[first.template as usize]
+        .to_trimesh(&ExtractParams::default())
+        .0;
+    let position = Vec3::from_array(b.positions[0]);
+    let normal = Vec3::from_array(b.normals[0]);
+    assert!(
+        template
+            .positions
+            .iter()
+            .zip(&template.normals)
+            .any(|(p, n)| {
+                let expected_position =
+                    first.position + first.rotation * (first.scale * Vec3::from_array(*p));
+                let expected_normal = first.rotation * Vec3::from_array(*n);
+                expected_position.distance(position) < 1e-5
+                    && expected_normal.distance(normal) < 1e-5
+            }),
+        "surface normal follows the corresponding template vertex"
+    );
+    assert_eq!(
+        canopy.lods[0].leaves.as_ref().expect("leaves").instances,
+        surface.lods[0].leaves.as_ref().expect("leaves").instances
+    );
 }

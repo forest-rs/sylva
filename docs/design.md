@@ -1,15 +1,17 @@
 # Sylva: procedural trees and forests for real-time worlds
 
-Design draft, 2026-09-23.
+Design draft, revised 2026-09-28.
 
 ## Purpose
 
-Generate SpeedTree-class vegetation assets for real-time rendering, and place
-them as forests:
+Generate vegetation whose identity survives changes in representation, and
+place it as forests. Sylva owns vegetation meaning and generation; consumers
+own runtime selection, streaming, and rendering. A conventional mesh-to-impostor
+chain is one compiled output strategy:
 
 - species described as data, grown deterministically from a seed;
-- hero-quality LOD0 geometry with a LOD chain down to impostors;
-- per-vertex wind data with a documented encoding;
+- reusable detailed geometry and conventional LOD chains down to impostors;
+- explicit motion descriptions, lowered into consumer-specific encodings;
 - generated textures: bark, leaves, twig/cluster cards and impostor atlases;
 - forest placement with variant pools and ecological competition;
 - export to glTF, and a real-time lightweald demo.
@@ -29,28 +31,39 @@ parameter must regenerate only the stages it affects.
 ## Pipeline
 
 ```
-Species (data) + seed
+Species (data) + seed + environment
    │
-   ├─ growth ─────────► Skeleton IR ◄──── environment (obstacles, light, neighbours)
-   │   hierarchical rules │
-   │   or simulation      │ shared post-passes: pipe-model radii, tropism,
-   │                      │ gravity sag, pruning envelope, smoothing
-   ▼                      ▼
-   ├─ branch meshing ──► bark surfaces (rings, junction collars, root flare, bark UVs)
-   ├─ foliage ─────────► attachment sites → leaves / fronds / cluster cards
-   ├─ wind ────────────► hierarchical pivot + weight attributes
-   ├─ LOD ─────────────► LOD0…LODn from the skeleton, then impostor
-   ├─ textures ────────► bark set, leaf set, card bakes, impostor atlas
-   ▼
-TreeAsset (render buffers per LOD + materials + textures + metadata)
-   │
-   ├─ glTF adapter (via exedra_gltf)
-   └─ lightweald adapter
-Forest = placement over terrain × variant pool of TreeAssets
+   └─ growth ──► Skeleton IR + shared radius/frame passes
+                      │
+                      └─ foliage description and placement + authored materials
+                                      │
+                               GeneratedTree
+                       (identity, shapes, placements)
+                                      │
+            ┌─────────────────────────┼─────────────────────────┐
+            ▼                         ▼                         ▼
+    conventional compiler     detailed compiler          future compilers
+    bark, cards, LODs,        bark + geometric            motion-coherent parts,
+    bakes, impostors          tissue instances            filtered aggregates
+            │                         │
+         TreeAsset               DetailedAsset
+            └─────────────────────────┘
+                         │
+                  consumer adapters
+                   glTF / lightweald
+
+Forest = placement over terrain × variant pool of generated trees / realizations
 ```
 
-Each arrow is an explicit value with a fingerprint, so every stage can be cached
-and inspected on its own.
+The source/realization split is implemented in `sylva_asset`. Source snapshots
+contain no meshes, LOD policy or storage schema. Recipe and seed ownership stays
+with the authoring caller. Stable branch and leaf identities link compiled
+outputs back to the source; buffer indices are only local references.
+
+Stage fingerprints and incremental caches remain a target. They should follow
+these value boundaries, with explicit inputs and measurable invalidation.
+Future OpenUSD integration through layerstack can encode and compose these
+descriptions without defining Sylva semantics through an export schema.
 
 ## Crates
 
@@ -68,7 +81,7 @@ starts.
 | `sylva_lod` | LOD policy, skeleton-driven reduction, leaf budget, transitions | yes |
 | `sylva_bake` | Deterministic CPU rasterizer / ray caster for card and impostor bakes | yes |
 | `sylva_texture` | Species texture recipes (bark, leaf) built on dapple | yes |
-| `sylva_asset` | Species → `TreeAsset` orchestration, stage caching, reports | yes |
+| `sylva_asset` | Generated vegetation, conventional and detailed realization, provenance and reports | yes |
 | `sylva_forest` | Placement, variant pools, ecosystem competition, instance tiles | yes |
 | `sylva_gltf` | glTF adapter | std |
 | `sylva` | Leaf-only facade (exedra convention) | yes |
@@ -83,9 +96,11 @@ geometry-driven bakes.
 
 ### Species
 
-A `Species` value holds the growth description, bark recipe, leaf recipe,
-foliage placement, LOD policy and wind stiffness. It is plain data with an
-optional `serde` feature. Presets live as data files in an examples crate, not
+A `Species` value holds growth and foliage parameters and growing conditions.
+Gallery presets associate it with material recipes and optional realization
+profiles. Rendering budgets and LOD policies belong to those profiles, not to
+the generated tree. Species descriptions are plain data with an optional
+`serde` feature. Presets live as data files in an examples crate, not
 in core crates. Rust builders come first; the data format follows because
 presets are data.
 
@@ -178,13 +193,35 @@ deterministic triangulation, and exedra's mesh ops for finishing.
 - **Canopy normals:** a normal-bending option (per crown, spherical or hull
   based) that gives the soft foliage shading real-time trees rely on.
 - **Storage:** leaves stay instances (template × transform) inside the asset
-  until LOD packaging merges them into buffers. A leaf never becomes a
-  half-edge face set.
+  until a chosen compiler explicitly expands them. Templates may have geometric
+  realizations; individual occurrences remain placements in the detailed path.
+
+### Source, geometry and motion
+
+`GeneratedTree` owns a completed skeleton, mesh-free leaf templates and their
+identified placements, and authored bark/leaf materials. `TreeAsset` remains
+the conventional raster product. `DetailedAsset` builds bark and geometric
+tissue templates without expanding foliage or constructing an LOD chain.
+The two products retain source identities and a stable branch table.
+
+Compound tissue currently consists of thin midrib/leaflet patches with
+geometric gaps, common UVs and overlapping attachments. Volumetric needles,
+reusable branch parts, and motion compilation remain future work. Surface
+orientation and artistic canopy normals are preserved separately. Coverage
+and shading fidelity must be measured separately from botanical form or
+triangle counts; area compensation alone is not an appearance guarantee.
+
+The botanical skeleton, future motion hierarchy and rendering hierarchy have
+different responsibilities. Preserve mappings between them rather than
+requiring identical topology. Aggregation should first be proven on spatially
+local, motion-coherent parts. Its material and coverage model remains research;
+no universal voxel, field, or appearance format is committed here.
 
 ### Wind
 
-The wind encoding is a versioned contract. It is inspired by Pivot Painter 2
-and SpeedTree wind. Each vertex carries:
+Motion descriptions should precede their renderer-specific encodings. The
+following per-vertex encoding is a proposed conventional output contract,
+inspired by Pivot Painter 2 and SpeedTree wind. Each vertex carries:
 - the pivot position and axis for up to three hierarchy levels (trunk, branch,
   twig);
 - a bend weight per level (0 at the pivot, rising along the branch);

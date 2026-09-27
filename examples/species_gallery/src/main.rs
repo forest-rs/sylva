@@ -91,9 +91,9 @@ use std::time::Instant;
 
 use dapple_encode::{Filter, PackSettings, Profile, ktx2, pack};
 use exedra_mesh::{ExtractAttribute, ExtractParams, NormalsSource, TriMesh};
-use sylva_asset::{MaterialRole, TreeMaterials, build_asset};
+use sylva_asset::{GeneratedTree, MaterialRole, TreeMaterials, build_asset};
 use sylva_bake::BakeMaterial;
-use sylva_foliage::{Foliage, place_leaves};
+use sylva_foliage::Foliage;
 use sylva_gltf::{ExportOptions, LeafExport, MaterialTextures, export_lod_glb_with};
 use sylva_lod::{
     Atlas, AtlasSettings, CardMaterials, Impostor, ImpostorLayout, ImpostorPolicy, bake_clusters,
@@ -495,14 +495,21 @@ fn grow_species(
         let started = Instant::now();
         let grown = species.grow(seed)?;
         let elapsed = started.elapsed();
+        let placed = Instant::now();
+        let tree = GeneratedTree::new(
+            grown.skeleton,
+            species.foliage.as_ref(),
+            TreeMaterials::default(),
+        )?;
+        let place_us = placed.elapsed().as_micros();
         let dir = out_dir.join(format!("{}-seed{seed}", species.name));
         std::fs::create_dir_all(&dir)?;
         if !glb_only {
-            std::fs::write(dir.join("skeleton.json"), skeleton_json(&grown.skeleton)?)?;
-            std::fs::write(dir.join("skeleton.obj"), skeleton_obj(&grown.skeleton)?)?;
+            std::fs::write(dir.join("skeleton.json"), skeleton_json(tree.skeleton())?)?;
+            std::fs::write(dir.join("skeleton.obj"), skeleton_obj(tree.skeleton())?)?;
         }
         let meshed = Instant::now();
-        let bark = mesh_skeleton(&grown.skeleton, &MeshParams::default())?;
+        let bark = mesh_skeleton(tree.skeleton(), &MeshParams::default())?;
         let (tri, _) = bark.mesh.to_trimesh(&ExtractParams {
             normals: NormalsSource::CustomOnly,
             attributes: vec![ExtractAttribute::new(BRANCH_LAYER, u32::MAX)],
@@ -513,17 +520,15 @@ fn grow_species(
             std::fs::write(dir.join("bark.obj"), bark_obj(&tri)?)?;
         }
         if welded {
-            write_welded(&dir, &grown.skeleton)?;
+            write_welded(&dir, tree.skeleton())?;
         }
         let mesh = &bark.report;
         let leaves = match &species.foliage {
-            Some(params) => {
-                let placed = Instant::now();
-                let foliage = place_leaves(&grown.skeleton, params)?;
-                let place_us = placed.elapsed().as_micros();
+            Some(_) => {
+                let foliage = tree.foliage();
                 if !glb_only {
-                    std::fs::write(dir.join("leaves.obj"), leaves_obj(&foliage)?)?;
-                    write_mask(&dir.join("leaf-mask.png"), &foliage)?;
+                    std::fs::write(dir.join("leaves.obj"), leaves_obj(foliage)?)?;
+                    write_mask(&dir.join("leaf-mask.png"), foliage)?;
                 }
                 if tree_only {
                     println!(
@@ -542,13 +547,12 @@ fn grow_species(
                 let bark_stage = if export == Export::None {
                     None
                 } else {
-                    write_bark_stages(&dir, preset, &grown.skeleton)?
+                    write_bark_stages(&dir, preset, tree.skeleton())?
                 };
                 let lods = write_lods(
                     &dir,
                     export,
-                    &grown.skeleton,
-                    &foliage,
+                    &tree,
                     &tri,
                     &textures,
                     &lod,
@@ -567,12 +571,12 @@ fn grow_species(
                 }
                 let card = card::bake_twig_card(
                     &dir.join("twig-card"),
-                    &grown.skeleton,
+                    tree.skeleton(),
                     &tri,
-                    &foliage,
+                    foliage,
                     &textures,
                 )?;
-                let r = &foliage.report;
+                let r = foliage.report;
                 format!(
                     ",\"foliage\":{{\"leaves\":{},\"templates\":{},\"place_us\":{place_us}}}{card}{lods}",
                     r.leaves, r.templates
@@ -785,14 +789,15 @@ enum Export {
 fn write_lods(
     dir: &std::path::Path,
     export: Export,
-    skeleton: &sylva_skeleton::Skeleton,
-    foliage: &Foliage,
+    tree: &GeneratedTree,
     bark: &TriMesh,
     textures: &card::Textures,
     spec: &lod_spec::LodSpec,
     bark_stage: Option<&std::path::Path>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let started = Instant::now();
+    let skeleton = tree.skeleton();
+    let foliage = tree.foliage();
     let chain = build_lods(skeleton, foliage, &MeshParams::default(), &spec.policy())?;
     let elapsed = started.elapsed();
     let materials = CardMaterials {
@@ -933,7 +938,7 @@ fn write_lods(
     let bytes = if export == Export::None {
         Vec::new()
     } else {
-        write_glbs(dir, skeleton, foliage, &chain, bark_stage)?
+        write_glbs(dir, tree, &chain, bark_stage)?
     };
     // Each level against its budget: triangles drawn (instances counted)
     // and the bytes of its smallest GLB.
@@ -976,12 +981,11 @@ fn write_lods(
 /// level's smallest GLB size in bytes.
 fn write_glbs(
     dir: &std::path::Path,
-    skeleton: &sylva_skeleton::Skeleton,
-    foliage: &Foliage,
+    tree: &GeneratedTree,
     chain: &sylva_lod::LodChain,
     bark_stage: Option<&std::path::Path>,
 ) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
-    let asset = build_asset(skeleton, foliage, chain, &TreeMaterials::default())?;
+    let asset = build_asset(tree, chain, &sylva_asset::RasterOptions::default())?;
     let species = dir
         .file_name()
         .and_then(|n| n.to_str())

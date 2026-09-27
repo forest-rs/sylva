@@ -1,7 +1,10 @@
 // Copyright 2026 the Sylva Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! glTF export of [`TreeAsset`]s through `exedra_gltf`.
+//! glTF export of conventional and detailed trees through `exedra_gltf`.
+//!
+//! [`export_detailed_glb`] writes a [`DetailedAsset`] directly as geometric
+//! tissue instances, with surface normals and no silhouette alpha test.
 //!
 //! [`export_lod_glb`] writes one level of a tree as a binary glTF: each of
 //! the level's meshes becomes a baked `exedra_assembly` part with one
@@ -52,7 +55,7 @@ use exedra_gltf::{
 use exedra_math::Placement3;
 use exedra_mesh::{ExtractAttribute, TangentUv};
 use serde_json::{Value, json};
-use sylva_asset::{AssetInstances, TreeAsset, TreeMaterial};
+use sylva_asset::{AssetInstances, DetailedAsset, TreeAsset, TreeMaterial};
 use sylva_mesh::BRANCH_LAYER;
 
 /// Encoded PNG textures for one material, as glTF reads them.
@@ -146,7 +149,7 @@ impl ExportOptions {
 const SLOTS: u32 = 4;
 
 struct Resolver<'a> {
-    asset: &'a TreeAsset,
+    materials: &'a [TreeMaterial],
     textures: &'a [MaterialTextures<'a>],
 }
 
@@ -205,7 +208,6 @@ impl Resolver<'_> {
 impl MaterialResolver for Resolver<'_> {
     fn resolve(&self, key: &str) -> Option<Value> {
         let (index, material) = self
-            .asset
             .materials
             .iter()
             .enumerate()
@@ -286,11 +288,10 @@ pub fn export_lod_glb_with(
             if !added.contains(&mesh.name) {
                 add_instances(
                     &mut assembly,
-                    level,
+                    &format!("lod{level}"),
                     mesh.name,
-                    mesh.material,
                     copies,
-                    asset,
+                    &asset.materials[mesh.material as usize],
                 )?;
                 added.push(mesh.name);
                 any_instanced = true;
@@ -319,6 +320,65 @@ pub fn export_lod_glb_with(
             .add_instance(None, &name, part, Placement3::IDENTITY)
             .map_err(ExportError::Assembly)?;
     }
+    export_assembly(&assembly, &asset.materials, textures, any_instanced)
+}
+
+/// Writes detailed bark and geometric tissue using `EXT_mesh_gpu_instancing`.
+///
+/// `textures` contains bark then leaf textures. Both materials use geometric
+/// coverage (`OPAQUE` in glTF); thin-walled transmission is still projected.
+/// Surface normals are used. No merged foliage or artificial LOD is built.
+/// As with conventional instanced export, `_SEED` carries branch indices;
+/// stable leaf IDs and canopy normals remain in the Sylva asset, not the GLB.
+///
+/// # Errors
+///
+/// [`ExportError::Textures`] for a texture count mismatch, or an assembly,
+/// compilation or glTF error.
+pub fn export_detailed_glb(
+    asset: &DetailedAsset,
+    textures: &[MaterialTextures<'_>],
+) -> Result<GlbExport, ExportError> {
+    if textures.len() != asset.materials.len() {
+        return Err(ExportError::Textures {
+            expected: asset.materials.len(),
+            found: textures.len(),
+        });
+    }
+    let mut assembly = Assembly::new();
+    let part = assembly
+        .add_baked_part("bark", asset.bark.clone(), &["surface"])
+        .map_err(ExportError::Assembly)?;
+    assembly
+        .set_default_slot(part, "surface")
+        .map_err(ExportError::Assembly)?;
+    assembly
+        .set_part_material(part, "surface", &asset.materials[0].name)
+        .map_err(ExportError::Assembly)?;
+    assembly
+        .add_instance(None, "bark", part, Placement3::IDENTITY)
+        .map_err(ExportError::Assembly)?;
+    add_instances(
+        &mut assembly,
+        "detailed",
+        "leaves",
+        &asset.leaves,
+        &asset.materials[1],
+    )?;
+    export_assembly(
+        &assembly,
+        &asset.materials,
+        textures,
+        !asset.leaves.instances.is_empty(),
+    )
+}
+
+fn export_assembly(
+    assembly: &Assembly,
+    materials: &[TreeMaterial],
+    textures: &[MaterialTextures<'_>],
+    any_instanced: bool,
+) -> Result<GlbExport, ExportError> {
     let policy = CompilePolicy {
         normals: NormalsSource::CustomOrDerived,
         attributes: vec![ExtractAttribute::new(BRANCH_LAYER, NO_BRANCH)],
@@ -326,15 +386,18 @@ pub fn export_lod_glb_with(
         ..CompilePolicy::default()
     };
     let compiled = PartCompiler::new()
-        .compile_parts(&assembly, &policy)
+        .compile_parts(assembly, &policy)
         .map_err(ExportError::Compile)?;
     let mappings = [GltfAttribute::custom(BRANCH_LAYER, "_BRANCH")];
     let mut gltf = GltfExportOptions::z_up_to_y_up().with_attributes(&mappings);
     if any_instanced {
         gltf = gltf.with_instancing(GltfInstancing::GpuInstancing);
     }
-    let resolver = Resolver { asset, textures };
-    export_glb_with_materials(&assembly, &compiled, &resolver, gltf).map_err(ExportError::Gltf)
+    let resolver = Resolver {
+        materials,
+        textures,
+    };
+    export_glb_with_materials(assembly, &compiled, &resolver, gltf).map_err(ExportError::Gltf)
 }
 
 /// Adds one part per template and one placement set of its copies, at the
@@ -342,13 +405,11 @@ pub fn export_lod_glb_with(
 /// instanced node. Each placement's seed is its copy's branch index.
 fn add_instances(
     assembly: &mut Assembly,
-    level: usize,
+    namespace: &str,
     name: &str,
-    material: u32,
     copies: &AssetInstances,
-    asset: &TreeAsset,
+    material: &TreeMaterial,
 ) -> Result<(), ExportError> {
-    let material = &asset.materials[material as usize];
     for (t, template) in copies.templates.iter().enumerate() {
         let members: Vec<_> = copies
             .instances
@@ -360,7 +421,11 @@ fn add_instances(
         }
         let key = format!("{name}{t}");
         let part = assembly
-            .add_baked_part(&format!("lod{level}/{key}"), template.clone(), &["surface"])
+            .add_baked_part(
+                &format!("{namespace}/{key}"),
+                template.clone(),
+                &["surface"],
+            )
             .map_err(ExportError::Assembly)?;
         assembly
             .set_default_slot(part, "surface")
