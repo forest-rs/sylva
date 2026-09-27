@@ -166,6 +166,9 @@ impl Default for Collar {
 /// forks that cannot be cleared fall back to the embedded collar. The
 /// defaults weld most major forks of the oak preset (17 of 21 over two
 /// seeds), with the skin spanning three parent radii on each side.
+/// Openings and child trims must not contain other branch attachments.
+/// Crowded forks remain embedded; this strategy constructs a three-arm skin,
+/// not a multi-child junction.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Weld {
     /// Collar for children that stay embedded.
