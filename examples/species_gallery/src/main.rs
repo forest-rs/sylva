@@ -717,8 +717,9 @@ fn write_welded(
     dir: &std::path::Path,
     skeleton: &sylva_skeleton::Skeleton,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let weld = Weld::default();
     let params = MeshParams {
-        junction: Junction::Welded(Weld::default()),
+        junction: Junction::Welded(weld),
         ..MeshParams::default()
     };
     let started = Instant::now();
@@ -741,8 +742,9 @@ fn write_welded(
             child.nodes[0].frame.tangent,
         );
         let welded = outcome == "welded";
+        let reason = json_string(reason);
         Some(format!(
-            "{{\"branch\":{branch},\"id\":\"{:016x}\",\"parent\":{},\"parent_id\":\"{:016x}\",\"outcome\":\"{outcome}\",\"reason\":\"{reason}\",\"welded\":{welded},\"center\":[{},{},{}],\
+            "{{\"branch\":{branch},\"id\":\"{:016x}\",\"parent\":{},\"parent_id\":\"{:016x}\",\"outcome\":\"{outcome}\",\"reason\":{reason},\"welded\":{welded},\"center\":[{},{},{}],\
              \"parent_tangent\":[{},{},{}],\"child_tangent\":[{},{},{}],\
              \"parent_radius\":{},\"child_radius\":{}}}",
             child.id.bits(),
@@ -778,7 +780,12 @@ fn write_welded(
         .collect();
     let r = &bark.report;
     let json = format!(
-        "{{\"welded\":{},\"fallbacks\":{},\"builds\":{},\"triangles\":{},\"skin_quads\":{},\"skin_triangles\":{},\"mesh_us\":{},\"forks\":[{}]}}\n",
+        "{{\"weld_policy\":{{\"min_ratio\":{},\"min_radius_m\":{},\"parent_reach_radii\":{},\"child_reach_radii\":{},\"smoothing_rows\":{}}},\"welded\":{},\"fallbacks\":{},\"builds\":{},\"triangles\":{},\"skin_quads\":{},\"skin_triangles\":{},\"mesh_us\":{},\"forks\":[{}]}}\n",
+        weld.min_ratio,
+        weld.min_radius,
+        weld.parent_reach,
+        weld.child_reach,
+        weld.smoothing_rows,
         r.welded_junctions,
         r.weld_fallbacks,
         r.builds,
@@ -803,6 +810,23 @@ fn write_welded(
         reasons.join(", ")
     );
     Ok(())
+}
+
+/// Escapes diagnostic text without interpreting a solver's debug format.
+fn json_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c.is_control() => {
+                write!(out, "\\u{:04x}", u32::from(c)).expect("string write");
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Writes extracted bark as OBJ with UVs and normals, one group per branch.
