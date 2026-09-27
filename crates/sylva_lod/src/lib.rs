@@ -447,7 +447,40 @@ pub fn build_lods(
             junction: level.junction.unwrap_or(base.junction),
             ..*base
         };
-        let bark = mesh_skeleton(&pruned_skeleton, &params).map_err(LodError::Mesh)?;
+        let mut bark = mesh_skeleton(&pruned_skeleton, &params).map_err(LodError::Mesh)?;
+        // Meshing names the compacted skeleton. Restore the source index space
+        // before combining bark with leaves, cards or motion associations.
+        let source_indices: Vec<u32> = pruned_skeleton
+            .branches()
+            .iter()
+            .map(|branch| {
+                let index = skeleton
+                    .index_of(branch.id)
+                    .expect("pruning retains source branches");
+                u32::try_from(index).map_err(|_| LodError::Mesh(MeshError::TooLarge))
+            })
+            .collect::<Result<_, _>>()?;
+        let owners: Vec<_> = bark
+            .mesh
+            .vertices()
+            .map(|vertex| {
+                let owner =
+                    sylva_mesh::branch_of(&bark.mesh, vertex).expect("mesher records every owner");
+                (vertex, source_indices[owner as usize])
+            })
+            .collect();
+        let mut edit = bark.mesh.edit();
+        for (vertex, owner) in owners {
+            exedra_mesh::op::set_attribute(&mut edit, sylva_mesh::BRANCH_LAYER, vertex, owner)
+                .map_err(|_| LodError::Mesh(MeshError::Kernel))?;
+        }
+        let _: () = edit.finish();
+        for branch in &mut bark.welds {
+            *branch = source_indices[*branch as usize];
+        }
+        for refusal in &mut bark.weld_refusals {
+            refusal.branch = source_indices[refusal.branch as usize];
+        }
         let templates: Vec<Mesh> = foliage
             .templates
             .iter()

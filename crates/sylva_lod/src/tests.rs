@@ -544,3 +544,31 @@ fn levels_choose_their_own_junctions() {
         );
     }
 }
+
+#[test]
+fn pruned_bark_retains_original_branch_indices() {
+    let (skeleton, foliage) = tree();
+    let mut policy = clustered_policy();
+    let level = policy.levels[2];
+    policy.levels = vec![level];
+    policy.impostor = None;
+    let chain = build_lods(&skeleton, &foliage, &MeshParams::default(), &policy).expect("chain");
+    let mesh = &chain.levels[0].bark.mesh;
+    let mut actual: Vec<_> = mesh
+        .vertices()
+        .map(|v| sylva_mesh::branch_of(mesh, v).expect("branch"))
+        .collect();
+    actual.sort();
+    actual.dedup();
+    let expected: Vec<_> = skeleton
+        .branches()
+        .iter()
+        .enumerate()
+        .filter(|(_, branch)| branch.order < 2)
+        .map(|(index, _)| u32::try_from(index).expect("small skeleton"))
+        .collect();
+    assert_eq!(
+        actual, expected,
+        "provenance must address the original skeleton"
+    );
+}
