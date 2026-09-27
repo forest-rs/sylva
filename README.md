@@ -7,8 +7,6 @@ separate from the generated vegetation.
 
 The design lives in [`docs/design.md`](docs/design.md).
 
-API changes are described in [the migration notes](docs/migration.md).
-
 ## Crates
 
 - **[sylva_asset](crates/sylva_asset/)**: a mesh-free `GeneratedTree` with
