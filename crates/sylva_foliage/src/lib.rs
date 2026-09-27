@@ -7,11 +7,12 @@
 //! midrib. From that single description come:
 //!
 //! - [`leaf_mesh`]: the full-detail blade, folded and curled, with UVs;
+//! - [`tissue_mesh`]: explicit compound leaflets without silhouette masks;
 //! - [`card_mesh`]: a flat quad for alpha-tested foliage;
 //! - [`LeafShape::outline_at`]: the closed contour, from which
 //!   `sylva_texture` rasterizes the coverage mask the card samples.
 //!
-//! All three share one UV frame ([`LeafShape::uv`]), so the mesh, card and
+//! These realizations share one UV frame ([`LeafShape::uv`]), so the mesh, card and
 //! mask cannot disagree about where the leaf is.
 //!
 //! [`place_leaves`] builds a few keyed shape variants as [`LeafTemplate`]s and
@@ -42,7 +43,7 @@ mod place;
 mod shape;
 
 pub use error::FoliageError;
-pub use mesh::{card_mesh, leaf_mesh};
+pub use mesh::{card_mesh, leaf_mesh, tissue_mesh};
 pub use place::{
     Foliage, FoliageParams, FoliageReport, LeafId, LeafInstance, LeafTemplate, Variation,
     place_leaves,
