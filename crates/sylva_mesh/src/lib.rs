@@ -61,7 +61,10 @@ mod build;
 mod error;
 mod params;
 
-pub use build::{BRANCH_LAYER, BarkMesh, MeshReport, WeldRefusal, branch_of, mesh_skeleton};
+pub use build::{
+    BRANCH_LAYER, BarkMesh, MeshReport, WeldRefusal, WeldSkip, WeldSkipReason, branch_of,
+    mesh_skeleton,
+};
 pub use error::MeshError;
 pub use params::{
     BarkMapping, Collar, Junction, MeshParams, RingResolution, RootFlare, Stations, Weld,

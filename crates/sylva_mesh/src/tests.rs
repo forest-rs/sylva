@@ -602,4 +602,40 @@ fn minor_children_stay_embedded_under_welding() {
     .expect("mesh");
     assert_eq!(bark.report.welded_junctions + bark.report.weld_fallbacks, 0);
     assert!(bark.report.collar_rings > 0);
+    assert_eq!(
+        bark.weld_skips,
+        vec![crate::WeldSkip {
+            branch: 1,
+            reason: crate::WeldSkipReason::ChildTooThin,
+        }]
+    );
+}
+
+#[test]
+fn every_child_has_exactly_one_weld_outcome() {
+    let skeleton = tree(true, 0.25);
+    for weld in [
+        Weld::default(),
+        Weld {
+            min_radius: 1.0,
+            ..Weld::default()
+        },
+        Weld {
+            parent_reach: 100.0,
+            ..Weld::default()
+        },
+    ] {
+        let bark = mesh_skeleton(&skeleton, &welded(weld)).expect("mesh");
+        let mut children = bark.welds.clone();
+        children.extend(bark.weld_refusals.iter().map(|r| r.branch));
+        children.extend(bark.weld_skips.iter().map(|s| s.branch));
+        children.sort_unstable();
+        assert_eq!(children, vec![1]);
+    }
+    assert!(
+        mesh_skeleton(&skeleton, &plain())
+            .expect("embedded")
+            .weld_skips
+            .is_empty()
+    );
 }

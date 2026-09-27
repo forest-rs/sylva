@@ -481,6 +481,9 @@ pub fn build_lods(
         for refusal in &mut bark.weld_refusals {
             refusal.branch = source_indices[refusal.branch as usize];
         }
+        for skip in &mut bark.weld_skips {
+            skip.branch = source_indices[skip.branch as usize];
+        }
         let templates: Vec<Mesh> = foliage
             .templates
             .iter()

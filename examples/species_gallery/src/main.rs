@@ -60,7 +60,8 @@
 //! of the built-in ones, and `--skeleton-only` writes just each seed's
 //! `skeleton.json`, the fastest loop for crown shape. `--seeds 1,3` grows
 //! only those seeds, and `--tree-only` skips the LOD
-//! chain, card bakes and glTF export, for quick crown iteration. `--welded`
+//! chain, card bakes and glTF export, for quick crown iteration. `--bark-only`
+//! skips foliage and texture generation entirely. `--welded`
 //! also meshes the bark with major forks welded, as `bark-welded.obj` with
 //! the forks in `forks.json`; `render_forks.py` compares them close up
 //! against the embedded bark. Seed 1 writes its LOD meshes, baked atlases and
@@ -370,6 +371,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out_dir = PathBuf::from(".local/gallery/species-gallery");
     let mut seeds = SEEDS.to_vec();
     let mut tree_only = false;
+    let mut bark_only = false;
+    let mut output_given = false;
     let mut welded = false;
     let mut glb_only = false;
     let mut skeleton_only = false;
@@ -384,6 +387,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let list = args.next().ok_or("--seeds needs a value, e.g. 1,3")?;
                 seeds = list.split(',').map(str::parse).collect::<Result<_, _>>()?;
             }
+            "--help" | "-h" => {
+                println!(
+                    "Usage: species_gallery [OPTIONS] [OUTPUT_DIR]\n\n\
+                    --species NAMES     oak,spruce,beech,birch (comma separated)\n\
+                    --seeds NUMBERS     Seeds, comma separated (default: 1,2,3)\n\
+                    --preset FILE       Custom species RON and sibling materials\n\
+                    --bark-only         Skeleton and bark; no foliage or texture bakes\n\
+                    --welded            Also write welded bark and fork diagnostics\n\
+                    --skeleton-only     Skeleton only\n\
+                    --tree-only         Bark, foliage and textures; no LODs\n\
+                    --glb-only          GLBs with baked atlases\n\
+                    --measure           Species reference measurements\n\
+                    --fit               Fit the oak reference\n\n\
+                    Default output: .local/gallery/species-gallery\n\
+                    Fork review: blender --background --python \
+                    examples/species_gallery/tools/render_forks.py -- SEED_DIR --help"
+                );
+                return Ok(());
+            }
+            "--bark-only" => bark_only = true,
             "--tree-only" => tree_only = true,
             "--welded" => welded = true,
             "--glb-only" => glb_only = true,
@@ -397,7 +420,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 only = Some(list.split(',').map(str::to_owned).collect());
             }
             "--preset" => preset = Some(args.next().ok_or("--preset needs a RON file")?),
-            _ => out_dir = PathBuf::from(arg),
+            _ if arg.starts_with('-') => {
+                return Err(format!("unknown option {arg}; use --help").into());
+            }
+            _ if output_given => {
+                return Err("only one output directory is accepted; use --help".into());
+            }
+            _ => {
+                out_dir = PathBuf::from(arg);
+                output_given = true;
+            }
         }
     }
     let presets: Vec<Preset> = match &preset {
@@ -417,6 +449,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect(),
     };
+    if let Some(names) = &only {
+        let available = presets
+            .iter()
+            .map(|p| ron::from_str::<Species>(&p.species).map(|s| s.name))
+            .collect::<Result<Vec<_>, _>>()?;
+        for name in names {
+            if !available.contains(name) {
+                return Err(format!(
+                    "unknown species {name:?}; available: {}",
+                    available.join(", ")
+                )
+                .into());
+            }
+        }
+    }
+    if [
+        bark_only,
+        skeleton_only,
+        tree_only,
+        glb_only,
+        measure_only,
+        fit,
+    ]
+    .iter()
+    .filter(|&&b| b)
+    .count()
+        > 1
+    {
+        return Err("choose only one output mode; use --help".into());
+    }
+    if welded && (skeleton_only || measure_only || fit) {
+        return Err("--welded requires a mode that builds bark; use --bark-only".into());
+    }
     if measure_only {
         let dir = out_dir.parent().unwrap_or(&out_dir).join("measure");
         return measure::run(&dir, &presets, &seeds, only.as_deref());
@@ -440,6 +505,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &seeds,
             Flags {
                 tree_only,
+                bark_only,
                 welded,
                 glb_only,
                 skeleton_only,
@@ -454,6 +520,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[derive(Copy, Clone, Debug)]
 struct Flags {
     tree_only: bool,
+    bark_only: bool,
     welded: bool,
     glb_only: bool,
     skeleton_only: bool,
@@ -469,16 +536,39 @@ fn grow_species(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let Flags {
         tree_only,
+        bark_only,
         welded,
         glb_only,
         skeleton_only,
     } = flags;
-    if skeleton_only {
+    if skeleton_only || bark_only {
         for &seed in seeds {
             let grown = species.grow(seed)?;
             let dir = out_dir.join(format!("{}-seed{seed}", species.name));
             std::fs::create_dir_all(&dir)?;
             std::fs::write(dir.join("skeleton.json"), skeleton_json(&grown.skeleton)?)?;
+            std::fs::write(dir.join("species.ron"), &preset.species)?;
+            std::fs::write(
+                dir.join("capture.json"),
+                format!(
+                    "{{\"seed\":{seed},\"species_source\":\"species.ron\",\"units\":\"metres\",\"up\":\"+Z\"}}\n"
+                ),
+            )?;
+            if bark_only {
+                let bark = mesh_skeleton(&grown.skeleton, &MeshParams::default())?;
+                let tri = bark
+                    .mesh
+                    .to_trimesh(&ExtractParams {
+                        normals: NormalsSource::CustomOnly,
+                        attributes: vec![ExtractAttribute::new(BRANCH_LAYER, u32::MAX)],
+                        ..ExtractParams::default()
+                    })
+                    .0;
+                std::fs::write(dir.join("bark.obj"), bark_obj(&tri)?)?;
+                if welded {
+                    write_welded(&dir, &grown.skeleton)?;
+                }
+            }
             println!(
                 "{}-seed{seed}: {:?} branches by level, {} sites",
                 species.name, grown.report.branches_by_level, grown.report.sites
@@ -621,8 +711,8 @@ fn grow_species(
 }
 
 /// Meshes the bark again with major forks welded, writing it as
-/// `bark-welded.obj` and the forks as `forks.json`: one entry per major fork
-/// (welded or refused) with its center, parent radius and child branch.
+/// `bark-welded.obj` and `forks.json`: every child attachment, including
+/// selection exclusions, with stable identities and its final outcome.
 fn write_welded(
     dir: &std::path::Path,
     skeleton: &sylva_skeleton::Skeleton,
@@ -641,7 +731,7 @@ fn write_welded(
     let elapsed = started.elapsed();
     std::fs::write(dir.join("bark-welded.obj"), bark_obj(&tri)?)?;
     let branches = skeleton.branches();
-    let fork = |branch: u32, welded: bool| -> Option<String> {
+    let fork = |branch: u32, outcome: &str, reason: &str| -> Option<String> {
         let child = branches.get(branch as usize)?;
         let attachment = child.parent?;
         let sample = skeleton.branch(attachment.parent)?.sample(attachment.t);
@@ -650,21 +740,40 @@ fn write_welded(
             sample.frame.tangent,
             child.nodes[0].frame.tangent,
         );
+        let welded = outcome == "welded";
         Some(format!(
-            "{{\"branch\":{branch},\"welded\":{welded},\"center\":[{},{},{}],\
+            "{{\"branch\":{branch},\"id\":\"{:016x}\",\"parent\":{},\"parent_id\":\"{:016x}\",\"outcome\":\"{outcome}\",\"reason\":\"{reason}\",\"welded\":{welded},\"center\":[{},{},{}],\
              \"parent_tangent\":[{},{},{}],\"child_tangent\":[{},{},{}],\
              \"parent_radius\":{},\"child_radius\":{}}}",
-            p.x, p.y, p.z, t.x, t.y, t.z, d.x, d.y, d.z, sample.radius, child.nodes[0].radius
+            child.id.bits(),
+            skeleton.index_of(attachment.parent)?,
+            attachment.parent.bits(),
+            p.x,
+            p.y,
+            p.z,
+            t.x,
+            t.y,
+            t.z,
+            d.x,
+            d.y,
+            d.z,
+            sample.radius,
+            child.nodes[0].radius
         ))
     };
     let forks: Vec<String> = bark
         .welds
         .iter()
-        .filter_map(|&b| fork(b, true))
+        .filter_map(|&b| fork(b, "welded", ""))
         .chain(
             bark.weld_refusals
                 .iter()
-                .filter_map(|r| fork(r.branch, false)),
+                .filter_map(|r| fork(r.branch, "refused", &format!("{:?}", r.error))),
+        )
+        .chain(
+            bark.weld_skips
+                .iter()
+                .filter_map(|s| fork(s.branch, "excluded", s.reason.code())),
         )
         .collect();
     let r = &bark.report;
@@ -684,12 +793,6 @@ fn write_welded(
         .weld_refusals
         .iter()
         .map(|r| format!("{:?}", r.error))
-        .map(|e| {
-            e.split([' ', '{', '('])
-                .next()
-                .unwrap_or_default()
-                .to_owned()
-        })
         .collect();
     reasons.sort();
     reasons.dedup();
@@ -715,7 +818,19 @@ fn bark_obj(tri: &TriMesh) -> Result<String, std::fmt::Error> {
     for n in &tri.normals {
         writeln!(out, "vn {} {} {}", n[0], n[1], n[2])?;
     }
+    let owners = match tri.attribute(BRANCH_LAYER) {
+        Some(exedra_mesh::AttributeBuffer::U32(owners)) => Some(owners),
+        _ => None,
+    };
+    let mut group = None;
     for face in tri.indices.as_chunks::<3>().0 {
+        if let Some(owners) = owners {
+            let owner = owners[face[0] as usize];
+            if group != Some(owner) {
+                writeln!(out, "g branch-{owner}")?;
+                group = Some(owner);
+            }
+        }
         let [a, b, c] = face.map(|i| i + 1);
         writeln!(out, "f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}")?;
     }
