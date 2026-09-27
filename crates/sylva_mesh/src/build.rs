@@ -103,6 +103,50 @@ pub struct BarkMesh {
     /// Major forks left embedded because their skin was refused, in the
     /// order they were refused.
     pub weld_refusals: Vec<WeldRefusal>,
+    /// Child branches excluded before the weld solver ran, in storage order.
+    /// Empty for the embedded strategy.
+    pub weld_skips: Vec<WeldSkip>,
+}
+
+/// A fork excluded by the welded strategy's selection policy.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct WeldSkip {
+    /// Child index in [`Skeleton::branches`].
+    pub branch: u32,
+    /// First selection constraint the fork failed.
+    pub reason: WeldSkipReason,
+}
+
+/// Why the welded strategy kept an embedded collar without attempting a skin.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum WeldSkipReason {
+    /// Parent radius is below [`crate::Weld::min_radius`].
+    ParentTooThin,
+    /// Child-to-parent radius ratio is below [`crate::Weld::min_ratio`].
+    ChildTooThin,
+    /// Opening would leave too little parent tube below the fork.
+    ParentBase,
+    /// Opening would leave too little parent tube above the fork.
+    ParentTip,
+    /// First welded child ring would consume at least half the child.
+    ShortChild,
+    /// Opening would overlap a previously selected opening on the parent.
+    NeighborOpening,
+}
+
+impl WeldSkipReason {
+    /// Machine-readable reason, independent of debug formatting.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::ParentTooThin => "parent_too_thin",
+            Self::ChildTooThin => "child_too_thin",
+            Self::ParentBase => "parent_base",
+            Self::ParentTip => "parent_tip",
+            Self::ShortChild => "short_child",
+            Self::NeighborOpening => "neighbor_opening",
+        }
+    }
 }
 
 /// A major fork whose welded skin was refused.
@@ -381,7 +425,7 @@ fn wrap(angle: f32) -> f32 {
 pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMesh, MeshError> {
     params.validate()?;
     skeleton.validate().map_err(MeshError::Skeleton)?;
-    let sites = weld_sites(skeleton, params);
+    let (sites, skips) = weld_sites(skeleton, params)?;
     let mut active = vec![true; sites.len()];
     let mut refusals = Vec::new();
     let mut builds = 0;
@@ -392,6 +436,7 @@ pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMes
             bark.report.builds = builds;
             bark.report.weld_fallbacks = refusals.len() as u64;
             bark.weld_refusals = refusals;
+            bark.weld_skips = skips;
             return Ok(bark);
         }
         // Refusals only reopen embedded forks, which never overlap another
@@ -412,13 +457,17 @@ pub fn mesh_skeleton(skeleton: &Skeleton, params: &MeshParams) -> Result<BarkMes
 /// lies within the first half of its length, the opening leaves tube on both
 /// sides of it on the parent, and the opening does not overlap an earlier
 /// site's opening on the same parent.
-fn weld_sites(skeleton: &Skeleton, params: &MeshParams) -> Vec<WeldSite> {
+fn weld_sites(
+    skeleton: &Skeleton,
+    params: &MeshParams,
+) -> Result<(Vec<WeldSite>, Vec<WeldSkip>), MeshError> {
     let Junction::Welded(weld) = params.junction else {
-        return Vec::new();
+        return Ok((Vec::new(), Vec::new()));
     };
     let branches = skeleton.branches();
     let mut starts = vec![0.0_f32; branches.len()];
     let mut sites: Vec<WeldSite> = Vec::new();
+    let mut skips = Vec::new();
     for (child, branch) in branches.iter().enumerate() {
         let Some(attachment) = branch.parent else {
             continue;
@@ -429,9 +478,6 @@ fn weld_sites(skeleton: &Skeleton, params: &MeshParams) -> Vec<WeldSite> {
         let host = &branches[parent];
         let sample = host.sample(attachment.t);
         let radius = sample.radius.max(MIN_RADIUS);
-        if radius < weld.min_radius || branch.nodes[0].radius < weld.min_ratio * radius {
-            continue;
-        }
         let length = host.length();
         let at = attachment.t.clamp(0.0, 1.0) * length;
         let (from, to) = (
@@ -443,11 +489,26 @@ fn weld_sites(skeleton: &Skeleton, params: &MeshParams) -> Vec<WeldSite> {
             .iter()
             .filter(|site| site.parent == parent)
             .all(|site| to + radius < site.gap.0 || from - radius > site.gap.1);
-        if from <= starts[parent] + radius
-            || to >= length - radius
-            || child_start >= 0.5 * branch.length()
-            || !clear
-        {
+        let reason = if radius < weld.min_radius {
+            Some(WeldSkipReason::ParentTooThin)
+        } else if branch.nodes[0].radius < weld.min_ratio * radius {
+            Some(WeldSkipReason::ChildTooThin)
+        } else if from <= starts[parent] + radius {
+            Some(WeldSkipReason::ParentBase)
+        } else if to >= length - radius {
+            Some(WeldSkipReason::ParentTip)
+        } else if child_start >= 0.5 * branch.length() {
+            Some(WeldSkipReason::ShortChild)
+        } else if !clear {
+            Some(WeldSkipReason::NeighborOpening)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            skips.push(WeldSkip {
+                branch: u32::try_from(child).map_err(|_| MeshError::TooLarge)?,
+                reason,
+            });
             continue;
         }
         starts[child] = child_start;
@@ -459,7 +520,7 @@ fn weld_sites(skeleton: &Skeleton, params: &MeshParams) -> Vec<WeldSite> {
             child_start,
         });
     }
-    sites
+    Ok((sites, skips))
 }
 
 /// Meshes the skeleton with the `active` sites welded; returns the bark and
@@ -636,6 +697,7 @@ fn assemble(
         report,
         welds,
         weld_refusals: Vec::new(),
+        weld_skips: Vec::new(),
     };
     Ok((bark, refused))
 }

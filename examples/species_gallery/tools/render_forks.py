@@ -1,198 +1,205 @@
 # Copyright 2026 the Sylva Authors
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
-"""Render major forks close up, embedded against welded, in headless Blender.
+"""Reproducible, unclipped branch join review. Run with --help for selection.
 
-    cargo run --release -p species_gallery -- --welded .local/gallery/species-gallery
-    blender --background --python examples/species_gallery/tools/render_forks.py -- .local/gallery/species-gallery/oak-seed1
+cargo run --release -p species_gallery -- --bark-only --welded --species oak --seeds 1 OUTPUT
+blender --background --python examples/species_gallery/tools/render_forks.py -- OUTPUT/oak-seed1 --list
 
-Reads `forks.json`, `bark.obj` and `bark-welded.obj` from a species_gallery
-seed directory written with `--welded`. For the largest welded forks (up to
-four) and the largest refused one, writes `forks/fork-<branch>.png`: four
-panels, the embedded bark and the welded bark (left and right), each
-textured under a sun and as a wireframe (top and bottom). The camera looks
-across the plane of the fork and clips geometry in front of it. Textures come from `../textures/<species>-bark/gltf`
-when present.
+Each image compares embedded (left) and welded (right), clay (top) and wire
+(bottom). Only the selected child and its parent are shown. No near-plane
+cutaways: open bases at the ends of these isolated branches are intentional.
+The JSON sidecar records identities, outcomes, camera, input hashes and Blender
+version. Use the same branch ID, azimuth and framing for before/after captures.
 """
 
+import argparse
+import hashlib
 import json
 import math
 import sys
 from pathlib import Path
 
 import bpy
-from mathutils import Vector
-
-BARK = (0.33, 0.24, 0.16, 1.0)
-PANEL = 700
+from mathutils import Quaternion, Vector
 
 
 def args():
-    argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-    if not argv:
-        sys.exit("usage: render_forks.py -- <species_gallery seed dir>")
-    return Path(argv[0])
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("directory", type=Path)
+    parser.add_argument("--list", action="store_true", help="Print fork records as JSON without rendering")
+    parser.add_argument("--branch", action="append", default=[], help="Stable hexadecimal branch ID (repeatable)")
+    parser.add_argument("--azimuth", type=float, default=0, help="Degrees around the parent axis (default: 0)")
+    parser.add_argument("--scale", type=float, default=8, help="Image width in parent radii (default: 8)")
+    parser.add_argument("--size", type=int, default=512, help="Pixels per panel (default: 512)")
+    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    result = parser.parse_args(argv)
+    if not math.isfinite(result.azimuth) or not math.isfinite(result.scale) or result.scale <= 0 or result.size < 64:
+        parser.error("azimuth must be finite, scale positive and finite, and size at least 64")
+    return result
 
 
-def reset_scene():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    scene = bpy.context.scene
-    scene.render.engine = "BLENDER_EEVEE"
-    scene.render.resolution_x = PANEL
-    scene.render.resolution_y = PANEL
-    scene.view_settings.view_transform = "AgX"
-    world = bpy.data.worlds.new("world")
-    world.use_nodes = True
-    world.node_tree.nodes["Background"].inputs["Color"].default_value = (0.55, 0.62, 0.72, 1.0)
-    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.6
-    scene.world = world
-    sun = bpy.data.lights.new("sun", "SUN")
-    sun.energy = 4.0
-    sun.angle = math.radians(3.0)
-    sun_obj = bpy.data.objects.new("sun", sun)
-    sun_obj.rotation_euler = (math.radians(40), 0.0, math.radians(-30))
-    scene.collection.objects.link(sun_obj)
-    return scene
+def material(wire=False):
+    mat = bpy.data.materials.new("wire" if wire else "clay")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = (0.45, 0.32, 0.20, 1)
+    bsdf.inputs["Roughness"].default_value = 0.8
+    if wire:
+        node = mat.node_tree.nodes.new("ShaderNodeWireframe")
+        node.use_pixel_size = True
+        node.inputs["Size"].default_value = 1
+        mix = mat.node_tree.nodes.new("ShaderNodeMixRGB")
+        mix.inputs[1].default_value = (0.6, 0.6, 0.6, 1)
+        mix.inputs[2].default_value = (0.03, 0.03, 0.03, 1)
+        mat.node_tree.links.new(node.outputs["Fac"], mix.inputs[0])
+        mat.node_tree.links.new(mix.outputs[0], bsdf.inputs["Base Color"])
+    return mat
 
 
-def bark_material(textures):
-    material = bpy.data.materials.new("bark")
-    material.use_nodes = True
-    nodes = material.node_tree.nodes
-    links = material.node_tree.links
-    bsdf = nodes["Principled BSDF"]
-    bsdf.inputs["Roughness"].default_value = 0.85
-    base = textures / "base_color.png"
-    if base.exists():
-        tex = nodes.new("ShaderNodeTexImage")
-        tex.image = bpy.data.images.load(str(base))
-        links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-    else:
-        bsdf.inputs["Base Color"].default_value = BARK
-    normal = textures / "normal.png"
-    if normal.exists():
-        tex = nodes.new("ShaderNodeTexImage")
-        tex.image = bpy.data.images.load(str(normal))
-        tex.image.colorspace_settings.name = "Non-Color"
-        # `bark.obj` stores `1 - v`, so the map's green channel is flipped.
-        split = nodes.new("ShaderNodeSeparateColor")
-        invert = nodes.new("ShaderNodeMath")
-        invert.operation = "SUBTRACT"
-        invert.inputs[0].default_value = 1.0
-        join = nodes.new("ShaderNodeCombineColor")
-        links.new(tex.outputs["Color"], split.inputs["Color"])
-        links.new(split.outputs["Red"], join.inputs["Red"])
-        links.new(split.outputs["Green"], invert.inputs[1])
-        links.new(invert.outputs["Value"], join.inputs["Green"])
-        links.new(split.outputs["Blue"], join.inputs["Blue"])
-        map_node = nodes.new("ShaderNodeNormalMap")
-        links.new(join.outputs["Color"], map_node.inputs["Color"])
-        links.new(map_node.outputs["Normal"], bsdf.inputs["Normal"])
-    return material
+def read_bark(path):
+    """Read the gallery's indexed positions/normals and branch face groups."""
+    vertices, normals, groups = [], [], {}
+    group = None
+    with path.open() as source:
+        for line in source:
+            fields = line.split()
+            if not fields:
+                continue
+            if fields[0] == "v":
+                vertices.append(tuple(map(float, fields[1:])))
+            elif fields[0] == "vn":
+                normals.append(tuple(map(float, fields[1:])))
+            elif fields[0] == "g":
+                group = int(fields[1].removeprefix("branch-"))
+            elif fields[0] == "f":
+                if group is None:
+                    raise ValueError(f"{path}: missing branch groups; regenerate with species_gallery --bark-only --welded")
+                groups.setdefault(group, []).append(tuple(int(f.split('/')[0]) - 1 for f in fields[1:]))
+    return vertices, normals, groups
 
 
-def wire_material():
-    material = bpy.data.materials.new("wire")
-    material.use_nodes = True
-    nodes = material.node_tree.nodes
-    links = material.node_tree.links
-    bsdf = nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = (0.75, 0.72, 0.68, 1.0)
-    wire = nodes.new("ShaderNodeWireframe")
-    wire.use_pixel_size = True
-    wire.inputs["Size"].default_value = 1.2
-    mix = nodes.new("ShaderNodeMixRGB")
-    mix.inputs["Color1"].default_value = (0.75, 0.72, 0.68, 1.0)
-    mix.inputs["Color2"].default_value = (0.05, 0.05, 0.05, 1.0)
-    links.new(wire.outputs["Fac"], mix.inputs["Fac"])
-    links.new(mix.outputs["Color"], bsdf.inputs["Base Color"])
-    return material
-
-
-def load(path, material):
-    bpy.ops.wm.obj_import(filepath=str(path), forward_axis="Y", up_axis="Z")
-    obj = bpy.context.selected_objects[0]
-    obj.data.materials.clear()
-    obj.data.materials.append(material)
+def isolate(name, data, fork, mat):
+    positions, normals, groups = data
+    faces = groups.get(fork["parent"], []) + groups.get(fork["branch"], [])
+    indices = sorted({i for face in faces for i in face})
+    local = {index: i for i, index in enumerate(indices)}
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata([positions[i] for i in indices], [], [tuple(local[i] for i in f) for f in faces])
+    mesh.update()
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+    mesh.normals_split_custom_set_from_vertices([normals[i] for i in indices])
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    mesh.materials.append(mat)
     return obj
 
 
-def camera(scene, fork):
-    center = Vector(fork["center"])
-    along = Vector(fork["parent_tangent"]).normalized()
-    child = Vector(fork["child_tangent"]).normalized()
-    # Look across the fork's plane, from the side where the crotch between
-    # the parent's upper piece and the child opens, a little above it.
-    side = along.cross(child)
-    if side.length < 1e-3:
-        side = along.orthogonal()
-    side.normalize()
-    direction = (side + 0.35 * (along + child).normalized()).normalized()
-    distance = 7.0 * fork["parent_radius"]
-    data = bpy.data.cameras.new("fork")
-    data.lens = 50
-    # Clip what lies between the camera and the fork, such as other limbs.
-    data.clip_start = 0.6 * distance
-    data.clip_end = 3.0 * distance
-    cam = bpy.data.objects.new("fork", data)
-    scene.collection.objects.link(cam)
-    cam.location = center + direction * distance
-    cam.rotation_euler = (center - cam.location).to_track_quat("-Z", "Y").to_euler()
-    return cam
-
-
-def compose(panels, path):
-    """Tiles 2x2 panels (row-major) into one image."""
-    width = PANEL * 2
+def compose(panels, path, size):
+    width = size * 2
     out = bpy.data.images.new(path.name, width, width)
     pixels = [0.0] * (width * width * 4)
     for index, panel in enumerate(panels):
         image = bpy.data.images.load(str(panel))
         src = list(image.pixels)
         col, row = index % 2, 1 - index // 2
-        for y in range(PANEL):
-            start = ((row * PANEL + y) * width + col * PANEL) * 4
-            pixels[start : start + PANEL * 4] = src[y * PANEL * 4 : (y + 1) * PANEL * 4]
+        for y in range(size):
+            start = ((row * size + y) * width + col * size) * 4
+            pixels[start:start + size * 4] = src[y * size * 4:(y + 1) * size * 4]
         bpy.data.images.remove(image)
         panel.unlink()
     out.pixels = pixels
     out.filepath_raw = str(path)
     out.file_format = "PNG"
     out.save()
+    bpy.data.images.remove(out)
 
 
 def main():
-    out_dir = args()
-    species = out_dir.name.split("-seed")[0]
-    textures = out_dir.parent / "textures" / f"{species}-bark" / "gltf"
-    report = json.loads((out_dir / "forks.json").read_text())
+    opts = args()
+    directory = opts.directory.resolve()
+    report = json.loads((directory / "forks.json").read_text())
     forks = sorted(report["forks"], key=lambda f: -f["parent_radius"])
-    chosen = [f for f in forks if f["welded"]][:4] + [f for f in forks if not f["welded"]][:1]
-    scene = reset_scene()
-    lit = bark_material(textures)
-    wire = wire_material()
-    meshes = {
-        "embedded": load(out_dir / "bark.obj", lit),
-        "welded": load(out_dir / "bark-welded.obj", lit),
-    }
-    target = out_dir / "forks"
+    if opts.branch:
+        missing = set(opts.branch) - {f["id"] for f in forks}
+        if missing:
+            raise ValueError(f"unknown branch IDs: {sorted(missing)}; use --list")
+        chosen = [f for f in forks if f["id"] in opts.branch]
+    elif opts.list:
+        chosen = forks
+    else:
+        chosen = [f for f in forks if f["outcome"] == "welded"][:2]
+        chosen += [f for f in forks if f["outcome"] == "refused"][:1]
+        chosen += [f for f in forks if f["outcome"] == "excluded"][:2]
+    if opts.list:
+        print(json.dumps(chosen, indent=2))
+        return
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    scene = bpy.context.scene
+    scene.render.engine = "BLENDER_EEVEE"
+    scene.render.resolution_x = scene.render.resolution_y = opts.size
+    scene.view_settings.view_transform = "AgX"
+    world = bpy.data.worlds.new("world")
+    world.use_nodes = True
+    world.node_tree.nodes["Background"].inputs["Color"].default_value = (0.55, 0.62, 0.72, 1)
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.6
+    scene.world = world
+    sun = bpy.data.lights.new("sun", "SUN")
+    sun.energy = 3
+    sun_obj = bpy.data.objects.new("sun", sun)
+    sun_obj.rotation_euler = (math.radians(40), 0, math.radians(-30))
+    scene.collection.objects.link(sun_obj)
+    lit, wire = material(), material(True)
+    inputs = [directory / "forks.json", directory / "bark.obj", directory / "bark-welded.obj", Path(__file__)]
+    inputs += [p for p in (directory / "capture.json", directory / "species.ron") if p.exists()]
+    hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
+    data = {name: read_bark(directory / file) for name, file in [("embedded", "bark.obj"), ("welded", "bark-welded.obj")]}
+    target = directory / "forks"
     target.mkdir(exist_ok=True)
     for fork in chosen:
-        scene.camera = camera(scene, fork)
+        meshes = [isolate(name, mesh, fork, lit) for name, mesh in data.items()]
+        center = Vector(fork["center"])
+        along = Vector(fork["parent_tangent"]).normalized()
+        child = Vector(fork["child_tangent"]).normalized()
+        side = along.cross(child)
+        if side.length < 1e-3:
+            side = along.orthogonal()
+        direction = Quaternion(along, math.radians(opts.azimuth)) @ (side.normalized() + 0.25 * along).normalized()
+        radius = fork["parent_radius"]
+        camera_data = bpy.data.cameras.new("fork")
+        camera_data.type = "ORTHO"
+        camera_data.ortho_scale = opts.scale * radius
+        camera_data.clip_start = max(radius * 0.001, 0.00001)
+        # Place the camera beyond every retained vertex: no foreground cuts.
+        distance = max((Vector(v) - center).length for mesh in meshes for v in [vertex.co for vertex in mesh.data.vertices]) + radius
+        camera_data.clip_end = 2 * distance + radius
+        camera = bpy.data.objects.new("fork", camera_data)
+        scene.collection.objects.link(camera)
+        camera.location = center + direction * distance
+        camera.rotation_euler = (center - camera.location).to_track_quat("-Z", "Y").to_euler()
+        scene.camera = camera
         panels = []
-        for material in (lit, wire):
-            for name, obj in meshes.items():
-                for other in meshes.values():
-                    other.hide_render = other is not obj
-                obj.data.materials[0] = material
+        for mat in (lit, wire):
+            for obj in meshes:
+                for other in meshes:
+                    other.hide_render = other != obj
+                obj.data.materials[0] = mat
                 panel = target / f"panel-{len(panels)}.png"
                 scene.render.filepath = str(panel)
                 bpy.ops.render.render(write_still=True)
                 panels.append(panel)
-        path = target / f"fork-{fork['branch']}.png"
-        compose(panels, path)
-        state = "welded" if fork["welded"] else "refused"
-        print(f"wrote {path} ({state}, parent radius {fork['parent_radius']:.3f} m)")
+        path = target / f"fork-{fork['id']}-az{opts.azimuth:g}.png"
+        compose(panels, path, opts.size)
+        metadata = {"fork": fork, "panels": ["embedded clay", "welded clay", "embedded wire", "welded wire"], "isolated_branches": [fork["parent_id"], fork["id"]], "azimuth_degrees": opts.azimuth, "width_parent_radii": opts.scale, "camera_position": list(camera.location), "camera_target": list(center), "clip_metres": [camera_data.clip_start, camera_data.clip_end], "panel_pixels": opts.size, "blender": bpy.app.version_string, "input_sha256": hashes}
+        path.with_suffix(".json").write_text(json.dumps(metadata, indent=2) + "\n")
+        print(f"wrote {path} ({fork['outcome']}: {fork['reason']})")
+        for obj in meshes:
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.meshes.remove(mesh)
+        bpy.data.objects.remove(camera, do_unlink=True)
+        bpy.data.cameras.remove(camera_data)
 
 
 main()
