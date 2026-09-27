@@ -386,3 +386,59 @@ fn leaf_identity_survives_site_reordering_and_shape_edits() {
         assert!(edited.instances.iter().any(|other| other.id == leaf.id));
     }
 }
+
+#[test]
+fn tissue_geometry_keeps_leaflet_gaps_without_an_opacity_mask() {
+    let shape = LeafShape {
+        length: 0.12,
+        width: 0.3,
+        widest_at: 0.35,
+        tip: 0.9,
+        lobes: 0,
+        lobe_depth: 0.0,
+        lobe_skew: 0.9,
+        auricle: 0.0,
+        leaflets: 20,
+        leaflet_width: 0.012,
+        leaflet_span: 0.05,
+        ..LeafShape::default()
+    };
+    let mesh = crate::tissue_mesh(&shape).expect("tissue");
+    assert!(mesh.validate_fast().is_empty(), "valid tissue topology");
+    let (tri, _) = mesh.to_trimesh(&ExtractParams::default());
+    let covered = |p: Vec2| {
+        tri.indices.as_chunks::<3>().0.iter().any(|indices| {
+            let [a, b, c] = indices.map(|i| Vec3::from_array(tri.positions[i as usize]).truncate());
+            (b - a).perp_dot(p - a) >= 0.0
+                && (c - b).perp_dot(p - b) >= 0.0
+                && (a - c).perp_dot(p - c) >= 0.0
+        })
+    };
+    let ts = shape.leaflet_ts();
+    for pair in ts.windows(2) {
+        let mid = 0.5 * (pair[0] + pair[1]);
+        let gap = shape.skewed(Vec2::new(0.5 * shape.half_width(mid), mid * shape.length));
+        assert!(!covered(gap), "geometric gap at {gap}");
+    }
+    for t in ts {
+        for sign in [-1.0, 1.0] {
+            let tissue = shape.skewed(Vec2::new(
+                sign * 0.5 * shape.half_width(t),
+                t * shape.length,
+            ));
+            assert!(covered(tissue), "geometric leaflet at {tissue}");
+        }
+    }
+    for (position, uv) in tri.positions.iter().zip(&tri.uvs) {
+        let flat = Vec2::new(position[0], position[1]);
+        assert_eq!(*uv, shape.uv(flat), "shared material coordinates");
+        assert!(position.iter().all(|v| v.is_finite()));
+    }
+    assert_eq!(
+        tri,
+        crate::tissue_mesh(&shape)
+            .expect("repeat")
+            .to_trimesh(&ExtractParams::default())
+            .0
+    );
+}

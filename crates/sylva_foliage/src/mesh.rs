@@ -125,3 +125,63 @@ pub fn card_mesh(shape: &LeafShape) -> Result<Mesh, FoliageError> {
 fn vec_of(corners: &[(Vec2, Vec3)]) -> Vec<(Vec2, Vec3)> {
     corners.to_vec()
 }
+
+/// Meshes the actual tissue, including individual compound leaflets.
+///
+/// Simple blades use [`leaf_mesh`]. Compound shapes use the midrib and
+/// leaflet polygons from [`LeafShape::tissue_at`], split at the fold and
+/// triangulated in flat leaf space before shaping. The silhouette needs no
+/// opacity mask. UVs remain in the same frame as cards and material recipes.
+///
+/// These are two-sided thin surfaces, not volumetric needles or petioles.
+/// Tissue patches overlap at their attachments, as in the coverage union;
+/// this is not a watertight union and should not be measured by summing its
+/// triangle areas as if it were one non-overlapping surface.
+///
+/// # Errors
+///
+/// [`FoliageError::Params`] for an invalid shape, or a mesh kernel error.
+pub fn tissue_mesh(shape: &LeafShape) -> Result<Mesh, FoliageError> {
+    shape.validate()?;
+    if shape.leaflets == 0 {
+        return leaf_mesh(shape);
+    }
+    let mut faces = Vec::new();
+    for polygon in shape.tissue_at(shape.stations) {
+        // Keep the fold as a geometric edge. Triangulation must happen before
+        // bending; a non-planar polygon has no unique triangulation plane.
+        for sign in [-1.0, 1.0] {
+            let mut half = Vec::new();
+            for (&a, &b) in polygon.iter().zip(polygon.iter().cycle().skip(1)) {
+                let a_inside = sign * a.x >= 0.0;
+                let b_inside = sign * b.x >= 0.0;
+                if a_inside {
+                    half.push(a);
+                }
+                if a_inside != b_inside {
+                    half.push(a.lerp(b, -a.x / (b.x - a.x)));
+                }
+            }
+            half.dedup();
+            if half.first() == half.last() {
+                half.pop();
+            }
+            if half.len() < 3 {
+                continue;
+            }
+            let flat = build(&[half.iter().map(|&p| (p, p.extend(0.0))).collect()], shape)?;
+            let (tri, _) = flat.to_trimesh(&exedra_mesh::ExtractParams {
+                face_triangulation: exedra_mesh::FaceTriangulation::Robust,
+                ..exedra_mesh::ExtractParams::default()
+            });
+            for indices in tri.indices.as_chunks::<3>().0 {
+                let points = indices.map(|i| {
+                    let p = Vec3::from_array(tri.positions[i as usize]).truncate();
+                    (p, shaped(shape, p))
+                });
+                faces.push(points.to_vec());
+            }
+        }
+    }
+    build(&faces, shape)
+}
