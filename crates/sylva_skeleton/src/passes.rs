@@ -100,7 +100,7 @@ pub fn compute_frames(skeleton: &mut Skeleton, params: &FrameParams) -> FrameRep
 /// Parameters for [`pipe_model_radii`].
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct PipeModel {
-    /// Radius at every branch tip, in metres.
+    /// Radius of an unsupported branch tip, in metres.
     pub tip_radius: f32,
     /// Exponent `e` of `r_parent^e = Σ r_child^e`. Leonardo's rule is 2;
     /// measured trees mostly fall between 2 and 3.
@@ -155,14 +155,19 @@ pub struct PipeReport {
 /// Every tip carries `tip_radius^e` of "flow". Walking a branch from tip to
 /// base, a node carries the tip's flow, the flow of the unmodeled shoots along
 /// the centerline between it and the tip ([`PipeModel::shoots_per_metre`]),
-/// and the base flow of every child attached at or beyond it
-/// (`child.t >= node.t`); its radius is that flow to the power `1/e`, scaled
+/// and the base flow of every child it supports; its radius is that flow
+/// to the power `1/e`, scaled
 /// below the lowest child by [`PipeModel::bole_taper`]. A branch's base
 /// radius is therefore the combined size of everything it supports, which is
 /// what makes forks read correctly.
 ///
 /// Branches are processed in reverse storage order, so children are sized
-/// before their parents. Existing radii are overwritten.
+/// before their parents. Existing radii are overwritten. Child flow enters at
+/// the first parent node at or beyond the attachment. This conservative
+/// sampling keeps both ends of the attachment segment thick enough to support
+/// the child: interpolating the parent cannot taper away its flow before the
+/// fork. It can extend that flow by up to one centerline segment beyond the
+/// fork (including to the tip). Centerline samples and branch IDs are unchanged.
 ///
 /// # Errors
 ///
@@ -215,16 +220,21 @@ pub fn pipe_model_radii(
         let total = *lengths.last().expect("branches have nodes");
         // Arc length of the lowest child; below it the bole tapers.
         let lowest = children.last().map_or(f32::NEG_INFINITY, |c| c.0 * total);
+        // Resolve the upper bracket once. Comparing node indices also avoids
+        // dropping flow at exact attachments through arc-length roundoff.
+        let support: Vec<usize> = children
+            .iter()
+            .map(|&(t, _)| {
+                lengths
+                    .partition_point(|&s| s < t * total)
+                    .min(lengths.len() - 1)
+            })
+            .collect();
         let mut flow = tip_flow;
         let mut next_child = 0;
         let mut radius = 0.0;
         for (node_index, node) in branch.nodes.iter_mut().enumerate().rev() {
-            let t = if total > 0.0 {
-                lengths[node_index] / total
-            } else {
-                0.0
-            };
-            while next_child < children.len() && children[next_child].0 >= t {
+            while next_child < children.len() && support[next_child] >= node_index {
                 flow += children[next_child].1;
                 next_child += 1;
             }
@@ -312,6 +322,46 @@ mod tests {
             assert!(child.nodes.iter().all(|n| (n.radius - 0.01).abs() < 1e-7));
         }
         assert!((report.max_radius - r(4.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn off_node_forks_keep_the_interpolated_parent_thicker_than_each_child() {
+        for t in [0.0, 0.01, 0.49, 0.5, 0.9, 0.999, 1.0] {
+            let mut skeleton = fork();
+            // Move a whorl between coarse parent samples. Long children carry
+            // much more shoot flow than the short continuation of the stem.
+            for branch in &mut skeleton.branches_mut()[1..] {
+                branch.parent.as_mut().expect("attachment").t = t;
+                branch.nodes = line(Vec3::Z * (2.0 * t), Vec3::Z * (2.0 * t) + Vec3::X * 10.0, 3);
+            }
+            let before: Vec<_> = skeleton
+                .branches()
+                .iter()
+                .map(|b| b.nodes.iter().map(|n| n.position).collect::<Vec<_>>())
+                .collect();
+            pipe_model_radii(
+                &mut skeleton,
+                &PipeModel {
+                    shoots_per_metre: 10.0,
+                    ..PipeModel::default()
+                },
+            )
+            .expect("radii");
+            let parent_radius = skeleton.branches()[0].sample(t).radius;
+            for child in &skeleton.branches()[1..] {
+                assert!(
+                    parent_radius >= child.nodes[0].radius,
+                    "t={t}: parent {parent_radius} < child {}",
+                    child.nodes[0].radius
+                );
+            }
+            for (branch, positions) in skeleton.branches().iter().zip(&before) {
+                assert_eq!(
+                    branch.nodes.iter().map(|n| n.position).collect::<Vec<_>>(),
+                    *positions
+                );
+            }
+        }
     }
 
     #[test]

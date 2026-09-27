@@ -128,6 +128,7 @@ impl Default for LodPolicy {
         let stations = |max_bend, max_spacing| Stations {
             max_bend,
             max_spacing,
+            ..base.stations
         };
         Self {
             levels: alloc::vec![

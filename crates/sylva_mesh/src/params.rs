@@ -46,6 +46,10 @@ pub struct Stations {
     pub max_bend: f32,
     /// Longest centerline run, in metres, between rings.
     pub max_spacing: f32,
+    /// Maximum relative error in the centerline radius when omitting a node.
+    /// Measured against its authored radius, before collar and root profiles.
+    /// Must be positive and finite; default 0.05 (five percent).
+    pub max_radius_error: f32,
 }
 
 impl Default for Stations {
@@ -53,6 +57,7 @@ impl Default for Stations {
         Self {
             max_bend: 0.15,
             max_spacing: 1.0,
+            max_radius_error: 0.05,
         }
     }
 }
@@ -121,6 +126,11 @@ impl Default for Junction {
 /// shallow angle, and the normals there blend into the parent's. The swell
 /// is largest on the parent's surface and eases out sharply, then slowly,
 /// over `length` child radii above it.
+///
+/// The open base ring is narrowed to at most one quarter of the parent
+/// radius, then recovers the full collar profile within half a parent radius.
+/// This buried neck prevents a coarse parent polygon from exposing the child's
+/// open root. It adds one ring even on minimum-resolution branches.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Collar {
     /// How far the collar reaches out from the parent's surface, as a
