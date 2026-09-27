@@ -574,8 +574,8 @@ fn grow_species(
                 )?;
                 let r = &foliage.report;
                 format!(
-                    ",\"foliage\":{{\"leaves\":{},\"templates\":{},\"triangles\":{},\"place_us\":{place_us}}}{card}{lods}",
-                    r.leaves, r.templates, r.instanced_triangles
+                    ",\"foliage\":{{\"leaves\":{},\"templates\":{},\"place_us\":{place_us}}}{card}{lods}",
+                    r.leaves, r.templates
                 )
             }
             None => String::new(),
@@ -719,9 +719,16 @@ fn bark_obj(tri: &TriMesh) -> Result<String, std::fmt::Error> {
 }
 
 /// Writes every leaf instance at full detail as one OBJ with UVs.
-fn leaves_obj(foliage: &Foliage) -> Result<String, std::fmt::Error> {
-    let templates: Vec<&exedra_mesh::Mesh> = foliage.templates.iter().map(|t| &t.mesh).collect();
-    instances_obj(&templates, &foliage.instances)
+fn leaves_obj(foliage: &Foliage) -> Result<String, Box<dyn std::error::Error>> {
+    let templates = foliage
+        .templates
+        .iter()
+        .map(|t| sylva_foliage::leaf_mesh(&t.shape))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(instances_obj(
+        &templates.iter().collect::<Vec<_>>(),
+        &foliage.instances,
+    )?)
 }
 
 /// Writes leaf instances of `templates` as one OBJ with UVs and, as vertex

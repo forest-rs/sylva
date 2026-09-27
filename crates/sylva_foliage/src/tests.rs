@@ -154,14 +154,6 @@ fn leaves_droop_face_the_sky_and_skip_other_kinds() {
         assert!(leaf.position.distance(Vec3::new(leaf.position.x, 0.0, 1.0)) > 0.0);
         assert!((leaf.canopy_normal.length() - 1.0).abs() < 1e-5);
     }
-    assert_eq!(
-        foliage.report.instanced_triangles,
-        foliage
-            .instances
-            .iter()
-            .map(|l| foliage.templates[l.template as usize].triangles)
-            .sum::<u64>()
-    );
 }
 
 #[test]
@@ -347,5 +339,50 @@ fn a_whorl_rolls_blades_evenly_about_a_shared_midrib() {
             let expected = libm::cosf(core::f32::consts::PI * k as f32 / 3.0);
             assert!((a - expected).abs() < 1e-4, "blade {k}: {a} vs {expected}");
         }
+    }
+}
+
+#[test]
+fn leaf_identity_survives_site_reordering_and_shape_edits() {
+    let original = twig();
+    let mut reordered = Skeleton::new();
+    for branch in original.branches() {
+        reordered.push_branch(branch.clone()).expect("branch");
+    }
+    for site in original.sites().iter().rev() {
+        reordered.push_site(*site).expect("site");
+    }
+    let params = FoliageParams {
+        whorl: 3,
+        ..FoliageParams::default()
+    };
+    let a = place_leaves(&original, &params).expect("original");
+    let b = place_leaves(&reordered, &params).expect("reordered");
+    let edited = place_leaves(
+        &original,
+        &FoliageParams {
+            seed: 99,
+            shape: LeafShape {
+                length: 0.2,
+                ..params.shape
+            },
+            ..params
+        },
+    )
+    .expect("edited");
+    let mut ids: Vec<_> = a.instances.iter().map(|leaf| leaf.id).collect();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), a.instances.len(), "whorl members are distinct");
+    for leaf in &a.instances {
+        let other = b
+            .instances
+            .iter()
+            .find(|other| other.id == leaf.id)
+            .expect("same identity");
+        assert_eq!(leaf.position, other.position);
+        assert_eq!(leaf.rotation, other.rotation);
+        assert_ne!(leaf.site, other.site, "identity is not the site index");
+        assert!(edited.instances.iter().any(|other| other.id == leaf.id));
     }
 }
