@@ -76,6 +76,41 @@ cargo run -p species_gallery --bin detailed -- spruce /tmp/sylva-detailed
 
 This writes an instanced GLB and reports template reuse and build costs.
 
+For repeatable species and branch review, start with the command's help or a
+branch survey. Branch selectors use stable hexadecimal IDs, not buffer indices:
+
+```sh
+cargo run --release -p species_gallery --bin review -- --help
+cargo run --release -p species_gallery --bin review -- --species beech --list --order 2
+cargo run --release -p species_gallery --bin review -- --species birch --out .local/birch-before
+cargo run --release -p species_gallery --bin review -- --species birch --out .local/birch-after --frame .local/birch-before/review.ron
+```
+
+`review` renders opaque tissue geometry and embedded bark, saves the exact
+species source, and reports camera settings, work counts and projected coverage
+in `review.ron`. `--branch ID` selects a subtree; `--obj` also exports that
+subtree for external inspection. `--frame` reuses a previous capture's cameras.
+Coverage is the sampled, visible union of bark and foliage in those views; it
+is resolution-dependent and is neither total leaf area nor a realism score.
+The images use plain colours and simple lighting to expose geometry.
+
+For isolated branch joins, capture both bark strategies without texture bakes:
+
+```sh
+cargo run --release -p species_gallery -- --bark-only --welded --species oak --seeds 1 .local/joins
+blender --background --python-exit-code 1 --python examples/species_gallery/tools/render_forks.py -- .local/joins/oak-seed1 --list
+blender --background --python-exit-code 1 --python examples/species_gallery/tools/render_forks.py -- .local/joins/oak-seed1
+```
+
+`forks.json` distinguishes successful welds, solver refusals and selection
+exclusions for every child. The renderer accepts `--branch ID`, `--azimuth`
+and a fixed `--width` in metres for matched comparisons. Each image shows
+embedded/welded bark in the left/right columns and clay/wireframe in the
+top/bottom rows. Its JSON sidecar records the camera, input hashes and Blender
+version. Only the chosen child and parent are shown, without camera cutaways;
+other branches and foliage are intentionally absent. Crowded forks stay
+embedded because the current weld strategy constructs only three-arm junctions.
+
 ## Minimum supported Rust version
 
 Sylva's MSRV is 1.92.

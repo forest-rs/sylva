@@ -31,11 +31,14 @@ def args():
     parser.add_argument("--branch", action="append", default=[], help="Stable hexadecimal branch ID (repeatable)")
     parser.add_argument("--azimuth", type=float, default=0, help="Degrees around the parent axis (default: 0)")
     parser.add_argument("--scale", type=float, default=8, help="Image width in parent radii (default: 8)")
+    parser.add_argument("--width", type=float, help="Fixed image width in metres, for matched before/after framing")
     parser.add_argument("--size", type=int, default=512, help="Pixels per panel (default: 512)")
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     result = parser.parse_args(argv)
     if not math.isfinite(result.azimuth) or not math.isfinite(result.scale) or result.scale <= 0 or result.size < 64:
         parser.error("azimuth must be finite, scale positive and finite, and size at least 64")
+    if result.width is not None and (not math.isfinite(result.width) or result.width <= 0):
+        parser.error("width must be positive and finite")
     return result
 
 
@@ -169,7 +172,7 @@ def main():
         radius = fork["parent_radius"]
         camera_data = bpy.data.cameras.new("fork")
         camera_data.type = "ORTHO"
-        camera_data.ortho_scale = opts.scale * radius
+        camera_data.ortho_scale = opts.width or opts.scale * radius
         camera_data.clip_start = max(radius * 0.001, 0.00001)
         # Place the camera beyond every retained vertex: no foreground cuts.
         distance = max((Vector(v) - center).length for mesh in meshes for v in [vertex.co for vertex in mesh.data.vertices]) + radius
@@ -191,7 +194,7 @@ def main():
                 panels.append(panel)
         path = target / f"fork-{fork['id']}-az{opts.azimuth:g}.png"
         compose(panels, path, opts.size)
-        metadata = {"fork": fork, "panels": ["embedded clay", "welded clay", "embedded wire", "welded wire"], "isolated_branches": [fork["parent_id"], fork["id"]], "azimuth_degrees": opts.azimuth, "width_parent_radii": opts.scale, "camera_position": list(camera.location), "camera_target": list(center), "clip_metres": [camera_data.clip_start, camera_data.clip_end], "panel_pixels": opts.size, "blender": bpy.app.version_string, "input_sha256": hashes}
+        metadata = {"fork": fork, "panels": ["embedded clay", "welded clay", "embedded wire", "welded wire"], "isolated_branches": [fork["parent_id"], fork["id"]], "azimuth_degrees": opts.azimuth, "width_parent_radii": camera_data.ortho_scale / radius, "width_metres": camera_data.ortho_scale, "camera_position": list(camera.location), "camera_target": list(center), "clip_metres": [camera_data.clip_start, camera_data.clip_end], "panel_pixels": opts.size, "blender": bpy.app.version_string, "input_sha256": hashes}
         path.with_suffix(".json").write_text(json.dumps(metadata, indent=2) + "\n")
         print(f"wrote {path} ({fork['outcome']}: {fork['reason']})")
         for obj in meshes:
