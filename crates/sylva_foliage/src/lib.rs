@@ -44,7 +44,8 @@ mod shape;
 pub use error::FoliageError;
 pub use mesh::{card_mesh, leaf_mesh};
 pub use place::{
-    Foliage, FoliageParams, FoliageReport, LeafInstance, LeafTemplate, Variation, place_leaves,
+    Foliage, FoliageParams, FoliageReport, LeafId, LeafInstance, LeafTemplate, Variation,
+    place_leaves,
 };
 pub use shape::LeafShape;
 

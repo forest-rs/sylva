@@ -83,7 +83,7 @@ pub fn bake_clusters(
         return Err(LodError::Bake("bark must carry the branch layer"));
     };
     let roots = cluster_roots(skeleton, clusters.params.root_order);
-    let templates = leaf_templates(foliage);
+    let templates = leaf_templates(foliage)?;
     let cells = clusters
         .variants
         .iter()
@@ -121,7 +121,7 @@ pub fn bake_impostor(
     materials: &CardMaterials<'_>,
     settings: &AtlasSettings,
 ) -> Result<Atlas, LodError> {
-    let templates = leaf_templates(foliage);
+    let templates = leaf_templates(foliage)?;
     let cells = impostor
         .views
         .iter()
@@ -140,11 +140,15 @@ pub fn bake_impostor(
     compose(&cells, impostor.layout(), settings)
 }
 
-fn leaf_templates(foliage: &Foliage) -> Vec<TriMesh> {
+fn leaf_templates(foliage: &Foliage) -> Result<Vec<TriMesh>, LodError> {
     foliage
         .templates
         .iter()
-        .map(|t| t.mesh.to_trimesh(&ExtractParams::default()).0)
+        .map(|t| {
+            sylva_foliage::leaf_mesh(&t.shape)
+                .map(|mesh| mesh.to_trimesh(&ExtractParams::default()).0)
+                .map_err(LodError::Foliage)
+        })
         .collect()
 }
 

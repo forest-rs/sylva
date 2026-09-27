@@ -5,12 +5,11 @@
 
 use alloc::vec::Vec;
 
-use exedra_mesh::Mesh;
 use glam::{Mat3, Quat, Vec3};
-use sylva_skeleton::Skeleton;
 use sylva_skeleton::keyed::{Key, SignedUnit, tag};
+use sylva_skeleton::{BranchId, Skeleton};
 
-use crate::{FoliageError, LeafShape, leaf_mesh};
+use crate::{FoliageError, LeafShape};
 
 /// Per-variant variation of the leaf shape, as fractions (`0.2` is ±20%).
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -84,15 +83,28 @@ impl Default for FoliageParams {
     }
 }
 
-/// One leaf template: a shape variant and its mesh.
-#[derive(Clone, Debug)]
+/// A reusable leaf shape, independent of its mesh or card realization.
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct LeafTemplate {
-    /// The variant's shape.
+    /// The variant's shape and shared material coordinate frame.
     pub shape: LeafShape,
-    /// Its blade mesh ([`leaf_mesh`]).
-    pub mesh: Mesh,
-    /// Triangles after extraction.
-    pub triangles: u64,
+}
+
+/// Stable identity within one generated tree, independent of storage order.
+///
+/// Changing a shape, transform, seed or realization preserves this identity.
+/// Changing the carrying branch's generation path or the site's identity does
+/// not. `member` distinguishes blades in a whorl; it is never a buffer index.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LeafId {
+    /// Stable carrying branch identity.
+    pub branch: BranchId,
+    /// Site kind within the branch.
+    pub kind: u32,
+    /// Site ordinal within that kind.
+    pub ordinal: u32,
+    /// Blade ordinal within the site's whorl.
+    pub member: u32,
 }
 
 /// One placed leaf: a template under a rigid transform and uniform scale.
@@ -100,6 +112,8 @@ pub struct LeafTemplate {
 /// A leaf-space point `p` lands at `position + rotation * (scale * p)`.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct LeafInstance {
+    /// Stable identity, retained by every realization.
+    pub id: LeafId,
     /// Index into [`Foliage::templates`].
     pub template: u32,
     /// Index of the carrying site in [`Skeleton::sites`].
@@ -125,8 +139,6 @@ pub struct FoliageReport {
     pub other_sites: u64,
     /// Templates built.
     pub templates: u64,
-    /// Triangles over all placed leaves at full detail.
-    pub instanced_triangles: u64,
     /// Centroid of all leaf positions, the origin of canopy normals.
     pub crown_centroid: Vec3,
 }
@@ -137,7 +149,7 @@ pub struct FoliageReport {
 /// render buffers, so thousands of leaves share a handful of meshes.
 #[derive(Clone, Debug)]
 pub struct Foliage {
-    /// Shape variants and their meshes.
+    /// Shape variants, without compiled geometry.
     pub templates: Vec<LeafTemplate>,
     /// Placed leaves, in site order.
     pub instances: Vec<LeafInstance>,
@@ -158,7 +170,7 @@ fn turn_toward(v: Vec3, target: Vec3, angle: f32) -> Vec3 {
     Quat::from_axis_angle(axis, angle.min(between)) * v
 }
 
-/// Builds leaf templates and places a leaf at every site of
+/// Describes leaf templates and places a leaf at every site of
 /// [`FoliageParams::site_kind`].
 ///
 /// Every choice is keyed by the seed and the site's branch ID, kind and
@@ -173,8 +185,8 @@ fn turn_toward(v: Vec3, target: Vec3, angle: f32) -> Vec3 {
 /// # Errors
 ///
 /// [`FoliageError::Params`] for invalid parameters,
-/// [`FoliageError::MissingBranch`] for a site whose branch is absent, or a
-/// kernel error while meshing templates.
+/// [`FoliageError::MissingBranch`] for a site whose branch is absent, or
+/// [`FoliageError::TooLarge`] when site indices overflow. No meshes are built.
 pub fn place_leaves(skeleton: &Skeleton, params: &FoliageParams) -> Result<Foliage, FoliageError> {
     params.validate()?;
     let mut report = FoliageReport::default();
@@ -191,16 +203,8 @@ pub fn place_leaves(skeleton: &Skeleton, params: &FoliageParams) -> Result<Folia
                 shape.lobe_depth =
                     (shape.lobe_depth * (1.0 + v.lobe_depth * signed(key, "lobes"))).min(0.95);
             }
-            let mesh = leaf_mesh(&shape)?;
-            let triangles = mesh
-                .faces()
-                .map(|f| mesh.face_loop(f).count().saturating_sub(2) as u64)
-                .sum();
-            Ok(LeafTemplate {
-                shape,
-                mesh,
-                triangles,
-            })
+            shape.validate()?;
+            Ok(LeafTemplate { shape })
         })
         .collect::<Result<Vec<_>, FoliageError>>()?;
     report.templates = templates.len() as u64;
@@ -249,8 +253,13 @@ pub fn place_leaves(skeleton: &Skeleton, params: &FoliageParams) -> Result<Folia
             let across = direction.cross(normal).normalize_or(Vec3::X);
             let normal = across.cross(direction);
             let rotation = Quat::from_mat3(&Mat3::from_cols(across, direction, normal));
-            report.instanced_triangles += templates[template as usize].triangles;
             instances.push(LeafInstance {
+                id: LeafId {
+                    branch: site.branch,
+                    kind: site.kind,
+                    ordinal: site.ordinal,
+                    member: k,
+                },
                 template,
                 site: site_index,
                 position,

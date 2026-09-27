@@ -115,8 +115,11 @@ pub(crate) fn bake_twig_card(
     let templates: Vec<TriMesh> = foliage
         .templates
         .iter()
-        .map(|t| t.mesh.to_trimesh(&exedra_mesh::ExtractParams::default()).0)
-        .collect();
+        .map(|t| {
+            sylva_foliage::leaf_mesh(&t.shape)
+                .map(|mesh| mesh.to_trimesh(&exedra_mesh::ExtractParams::default()).0)
+        })
+        .collect::<Result<_, _>>()?;
     let bark_material = BakeMaterial {
         base_color: Some(&textures.bark),
         ..BakeMaterial::default()
