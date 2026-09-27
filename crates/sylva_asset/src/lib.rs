@@ -1,7 +1,11 @@
 // Copyright 2026 the Sylva Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Render-ready sylva trees.
+//! Generated vegetation and its compiled realizations.
+//!
+//! [`GeneratedTree`] owns vegetation independently of rendering and storage.
+//! [`TreeAsset`] is the conventional mesh/card/LOD output. [`build_detailed`]
+//! compiles geometric tissue instances directly into a [`DetailedAsset`].
 //!
 //! [`build_asset`] turns a grown, foliated tree's [`LodChain`] into a
 //! [`TreeAsset`]: per level, one `exedra_mesh` [`Mesh`] per material, with
@@ -14,8 +18,8 @@
 //!
 //! - **Bark** is the level's bark mesh as meshed.
 //! - **Leaves** merge every kept leaf instance into one mesh: its template
-//!   under the instance transform, each corner's normal set to the leaf's
-//!   canopy normal for soft crown shading.
+//!   under the instance transform, with explicit surface or canopy shading
+//!   selected through [`RasterOptions`].
 //! - **Cluster cards** and the **impostor** are their crossed quads, each
 //!   with its own material, since each samples its own baked atlas.
 //!
@@ -23,15 +27,32 @@
 //! format.
 //!
 //! # Example
-//! ```rust,ignore
-//! let chain = sylva_lod::build_lods(&skeleton, &foliage, &mesh_params, &policy)?;
-//! let asset = sylva_asset::build_asset(&skeleton, &foliage, &chain, &TreeMaterials::default())?;
-//! assert_eq!(asset.lods.len(), chain.levels.len() + 1);
+//! ```rust
+//! use sylva_asset::{GeneratedTree, TreeMaterials, RasterOptions, build_asset, build_detailed};
+//! use sylva_foliage::FoliageParams;
+//! use sylva_lod::{LodPolicy, build_lods};
+//! use sylva_mesh::MeshParams;
+//! use sylva_skeleton::Skeleton;
+//!
+//! fn compile(skeleton: Skeleton, foliage: &FoliageParams) -> Result<(), Box<dyn core::error::Error>> {
+//!     let tree = GeneratedTree::new(skeleton, Some(foliage), TreeMaterials::default())?;
+//!     let mesh_params = MeshParams::default();
+//!     let chain = build_lods(tree.skeleton(), tree.foliage(), &mesh_params, &LodPolicy::default())?;
+//!     let raster = build_asset(&tree, &chain, &RasterOptions::default())?;
+//!     let detailed = build_detailed(&tree, &mesh_params)?;
+//!     assert_eq!(detailed.report.instances, tree.foliage().report.leaves);
+//!     Ok(())
+//! }
 //! ```
 
 #![no_std]
 
 extern crate alloc;
+
+mod detailed;
+mod source;
+pub use detailed::{DetailedAsset, DetailedReport, build_detailed};
+pub use source::GeneratedTree;
 
 use alloc::format;
 use alloc::string::String;
@@ -42,10 +63,10 @@ use exedra_mesh::{BuildError, ExtractParams, Mesh, MeshBuilder, TriMesh, op};
 use glam::{Affine3A, Vec3};
 use openpbr::Parameters;
 use openpbr::color::{LinearSrgb, OpaqueColor};
-use sylva_foliage::{Foliage, LeafInstance};
+use sylva_foliage::{Foliage, FoliageError, LeafId, LeafInstance};
 use sylva_lod::LodChain;
-use sylva_mesh::BRANCH_LAYER;
-use sylva_skeleton::Skeleton;
+use sylva_mesh::{BRANCH_LAYER, MeshError};
+use sylva_skeleton::{BranchId, SkeletonError};
 
 /// What a material covers, which tells an exporter which textures it takes.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -87,8 +108,6 @@ pub struct TreeMaterials {
     pub bark: Parameters<LinearSrgb>,
     /// Leaves.
     pub leaf: Parameters<LinearSrgb>,
-    /// Alpha-test threshold for leaves, cards and impostors.
-    pub alpha_cutoff: f32,
 }
 
 impl Default for TreeMaterials {
@@ -105,10 +124,36 @@ impl Default for TreeMaterials {
         leaf.geometry_thin_walled = true;
         leaf.subsurface_weight = 0.4;
         leaf.subsurface_color = OpaqueColor::new([0.2, 0.36, 0.05]);
+        Self { bark, leaf }
+    }
+}
+
+/// How merged leaf geometry is shaded. Surface orientation remains available
+/// in the source and retained templates for either choice.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum LeafNormals {
+    /// Use transformed template normals, matching the instanced surface path.
+    Surface,
+    /// Use the artistic tree-space canopy normal for every corner of a leaf.
+    #[default]
+    Canopy,
+}
+
+/// Conventional raster compilation choices, independent of source materials.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct RasterOptions {
+    /// Alpha-test threshold for leaf cards, cluster cards and impostors.
+    pub alpha_cutoff: f32,
+    /// Normal policy for merged leaves. Retained templates always preserve
+    /// surface normals and placements separately carry canopy normals.
+    pub leaf_normals: LeafNormals,
+}
+
+impl Default for RasterOptions {
+    fn default() -> Self {
         Self {
-            bark,
-            leaf,
             alpha_cutoff: 0.5,
+            leaf_normals: LeafNormals::Canopy,
         }
     }
 }
@@ -149,9 +194,9 @@ pub struct AssetLod {
 ///
 /// Instancing draws each template once per placement: a species' small
 /// library of leaves or baked cluster exemplars, repeated across the
-/// crown. It gives up what the merged meshes bake per copy: canopy normals
-/// (the templates carry their own) and per-vertex branch provenance (each
-/// placement keeps its branch instead, the key for wind pivots).
+/// crown. Templates preserve surface normals; placements separately retain
+/// the canopy normal, stable leaf identity and compiled branch index. A
+/// consumer chooses its shading treatment explicitly.
 #[derive(Clone, Debug)]
 pub struct AssetInstances {
     /// Template meshes in their own space, with UVs and normals.
@@ -163,6 +208,10 @@ pub struct AssetInstances {
 /// One copy of a template.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct AssetInstance {
+    /// Stable source leaf identity; `None` for a cluster card.
+    pub leaf: Option<LeafId>,
+    /// Tree-space artistic canopy normal, separate from template normals.
+    pub canopy_normal: Vec3,
     /// Index into [`AssetInstances::templates`].
     pub template: u32,
     /// Template space to tree space: a rotation and a positive, possibly
@@ -188,6 +237,8 @@ pub struct AssetReport {
 /// chain has one.
 #[derive(Clone, Debug)]
 pub struct TreeAsset {
+    /// Stable IDs indexed by all compiled branch-provenance streams.
+    pub branches: Vec<BranchId>,
     /// Levels, finest first.
     pub lods: Vec<AssetLod>,
     /// Materials the meshes reference.
@@ -200,6 +251,14 @@ pub struct TreeAsset {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum AssetError {
+    /// Detailed bark realization failed.
+    Mesh(MeshError),
+    /// The generated skeleton is invalid.
+    Skeleton(SkeletonError),
+    /// Foliage description or realization failed.
+    Foliage(FoliageError),
+    /// The source cannot provide consistent identities or placements.
+    Source(&'static str),
     /// Building a mesh failed.
     Build(BuildError),
     /// Writing a mesh attribute failed.
@@ -211,6 +270,10 @@ pub enum AssetError {
 impl fmt::Display for AssetError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Mesh(error) => write!(f, "asset bark: {error}"),
+            Self::Skeleton(error) => write!(f, "asset skeleton: {error}"),
+            Self::Foliage(error) => write!(f, "asset foliage: {error}"),
+            Self::Source(reason) => write!(f, "asset source: {reason}"),
             Self::Build(error) => write!(f, "asset mesh: {error}"),
             Self::Kernel => f.write_str("asset mesh attribute write failed"),
             Self::TooLarge => f.write_str("asset mesh exceeds 32-bit indices"),
@@ -220,17 +283,26 @@ impl fmt::Display for AssetError {
 
 impl core::error::Error for AssetError {}
 
-/// Builds the asset for a tree's LOD chain.
+/// Compiles the conventional raster asset from a generated tree and its LOD chain.
+///
+/// Build `chain` from `tree.skeleton()` and `tree.foliage()`. The chain must
+/// belong to this source snapshot. `options` chooses merged-leaf shading;
+/// instances preserve surface normals and separately retain the canopy direction.
 ///
 /// # Errors
 ///
-/// [`AssetError`] when a mesh cannot be built.
+/// [`AssetError`] when a mesh cannot be built or the alpha cutoff is invalid.
 pub fn build_asset(
-    skeleton: &Skeleton,
-    foliage: &Foliage,
+    tree: &GeneratedTree,
     chain: &LodChain,
-    materials: &TreeMaterials,
+    options: &RasterOptions,
 ) -> Result<TreeAsset, AssetError> {
+    if !(0.0..=1.0).contains(&options.alpha_cutoff) {
+        return Err(AssetError::Source("alpha cutoff must be in [0, 1]"));
+    }
+    let skeleton = tree.skeleton();
+    let foliage = tree.foliage();
+    let materials = tree.materials();
     let mut out = Vec::new();
     let mut table = alloc::vec![
         TreeMaterial {
@@ -244,7 +316,7 @@ pub fn build_asset(
             name: String::from("leaf"),
             role: MaterialRole::Leaf,
             params: materials.leaf,
-            alpha_cutoff: Some(materials.alpha_cutoff),
+            alpha_cutoff: Some(options.alpha_cutoff),
             double_sided: true,
         },
     ];
@@ -252,7 +324,7 @@ pub fn build_asset(
         name,
         role,
         params: materials.leaf,
-        alpha_cutoff: Some(materials.alpha_cutoff),
+        alpha_cutoff: Some(options.alpha_cutoff),
         double_sided: true,
     };
     let leaf_branches: Vec<u32> = foliage
@@ -278,7 +350,13 @@ pub fn build_asset(
             meshes.push(AssetMesh {
                 name: "leaves",
                 material: 1,
-                mesh: leaf_mesh(foliage, &level.templates, &level.leaves, &leaf_branches)?,
+                mesh: leaf_mesh(
+                    foliage,
+                    &level.templates,
+                    &level.leaves,
+                    &leaf_branches,
+                    options.leaf_normals,
+                )?,
             });
             leaves = Some(AssetInstances {
                 templates: level.templates.clone(),
@@ -286,6 +364,8 @@ pub fn build_asset(
                     .leaves
                     .iter()
                     .map(|leaf| AssetInstance {
+                        leaf: Some(leaf.id),
+                        canopy_normal: leaf.canopy_normal,
                         template: leaf.template,
                         transform: Affine3A::from_scale_rotation_translation(
                             Vec3::splat(leaf.scale),
@@ -363,6 +443,7 @@ pub fn build_asset(
             .sum(),
     };
     Ok(TreeAsset {
+        branches: skeleton.branches().iter().map(|branch| branch.id).collect(),
         lods: out,
         materials: table,
         report,
@@ -375,6 +456,7 @@ fn leaf_mesh(
     templates: &[Mesh],
     leaves: &[LeafInstance],
     leaf_branches: &[u32],
+    normals: LeafNormals,
 ) -> Result<Mesh, AssetError> {
     let templates: Vec<TriMesh> = templates
         .iter()
@@ -391,10 +473,17 @@ fn leaf_mesh(
             merged.branches.push(branch);
         }
         merged.uvs.extend_from_slice(&t.uvs);
-        merged.normals.extend(core::iter::repeat_n(
-            leaf.canopy_normal.to_array(),
-            t.positions.len(),
-        ));
+        match normals {
+            LeafNormals::Canopy => merged.normals.extend(core::iter::repeat_n(
+                leaf.canopy_normal.to_array(),
+                t.positions.len(),
+            )),
+            LeafNormals::Surface => merged.normals.extend(
+                t.normals
+                    .iter()
+                    .map(|normal| (leaf.rotation * Vec3::from_array(*normal)).to_array()),
+            ),
+        }
         for tri in t.indices.as_chunks::<3>().0 {
             merged.triangles.push(tri.map(|i| base + i as usize));
         }
@@ -433,6 +522,8 @@ fn card_instances(clusters: &sylva_lod::Clusters) -> Result<AssetInstances, Asse
         .map(|(card, right, up)| {
             let toward = right.cross(up);
             AssetInstance {
+                leaf: None,
+                canopy_normal: card.canopy_normal,
                 template: card.variant,
                 transform: Affine3A::from_cols(
                     (right * card.half.x).into(),

@@ -75,6 +75,7 @@ fn asset() -> TreeAsset {
     leaf.subsurface_weight = 0.4;
     leaf.subsurface_color = OpaqueColor::new([0.2, 0.36, 0.05]);
     TreeAsset {
+        branches: vec![],
         lods: vec![AssetLod {
             screen_size: 0.5,
             crossfade: 0.1,
@@ -222,6 +223,8 @@ fn instanced_leaves_draw_each_template_once() {
         mesh: quad(5),
     });
     let leaf = |x: f32| AssetInstance {
+        leaf: None,
+        canopy_normal: glam::Vec3::Z,
         template: 0,
         transform: glam::Affine3A::from_scale_rotation_translation(
             glam::Vec3::splat(0.5),
@@ -276,4 +279,70 @@ fn instanced_leaves_draw_each_template_once() {
         3,
         "bark and both leaf chunks"
     );
+}
+
+#[test]
+fn detailed_export_instances_geometry_and_keeps_transmission_without_masking() {
+    let original = asset();
+    let mut leaf_material = original.materials[1].clone();
+    leaf_material.alpha_cutoff = None;
+    let detailed = sylva_asset::DetailedAsset {
+        branches: vec![],
+        bark: quad(0),
+        leaves: AssetInstances {
+            templates: vec![bare_quad()],
+            instances: (0..3)
+                .map(|i| AssetInstance {
+                    leaf: None,
+                    canopy_normal: glam::Vec3::Z,
+                    template: 0,
+                    transform: glam::Affine3A::from_translation(glam::Vec3::new(
+                        i as f32, 0.0, 1.0,
+                    )),
+                    branch: 3,
+                })
+                .collect(),
+        },
+        materials: [original.materials[0].clone(), leaf_material],
+        report: sylva_asset::DetailedReport::default(),
+    };
+    let textures = [MaterialTextures::default(); 2];
+    let glb = crate::export_detailed_glb(&detailed, &textures).expect("detailed export");
+    let doc = GlbDocument::parse(&glb.bytes).expect("parse");
+    let json = doc.json();
+    assert_eq!(
+        doc.triangle_count(),
+        4,
+        "one bark mesh and one shared leaf template"
+    );
+    let leaf = json["materials"]
+        .as_array()
+        .expect("materials")
+        .iter()
+        .find(|m| m["name"] == "leaf")
+        .expect("leaf material");
+    assert_eq!(leaf["alphaMode"], "OPAQUE");
+    assert_eq!(leaf["doubleSided"], true);
+    assert!(
+        leaf["extensions"]
+            .get("KHR_materials_diffuse_transmission")
+            .is_some()
+    );
+    let batch = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find_map(|node| node["extensions"].get("EXT_mesh_gpu_instancing"))
+        .expect("instanced leaves");
+    let accessor = usize::try_from(
+        batch["attributes"]["TRANSLATION"]
+            .as_u64()
+            .expect("accessor"),
+    )
+    .expect("index");
+    assert_eq!(json["accessors"][accessor]["count"], 3);
+    assert!(matches!(
+        crate::export_detailed_glb(&detailed, &[]),
+        Err(ExportError::Textures { .. })
+    ));
 }

@@ -1,13 +1,22 @@
 # Sylva
 
 Procedural trees and forests for real-time worlds: species described as data,
-grown deterministically from a seed, meshed with a LOD chain down to impostors,
-with wind data and generated textures.
+grown deterministically from a seed, and compiled into conventional raster
+assets or detailed instanced geometry. Rendering and storage strategies stay
+separate from the generated vegetation.
 
 The design lives in [`docs/design.md`](docs/design.md).
 
+API changes are described in [the migration notes](docs/migration.md).
+
 ## Crates
 
+- **[sylva_asset](crates/sylva_asset/)**: a mesh-free `GeneratedTree` with
+  stable organ identity, plus conventional raster and detailed instanced
+  compilers. Detailed tissue preserves leaflet gaps without silhouette masks;
+  both outputs retain provenance and separate surface/canopy shading data.
+- **[sylva_gltf](crates/sylva_gltf/)**: conventional LOD and detailed instanced
+  glTF export, including thin-walled leaf transmission.
 - **[sylva_skeleton](crates/sylva_skeleton/)**: the skeleton IR shared by every
   growth backend. Branches, stable path-hashed IDs, keyed randomness, and the
   shared pipe-model radius and rotation-minimizing frame passes.
@@ -22,7 +31,8 @@ The design lives in [`docs/design.md`](docs/design.md).
   shape yields the full blade mesh, a card and its coverage mask in a shared
   UV frame; compound shapes (needle sprays, fronds) cut their outline into a
   midrib and leaflets through the mask; keyed template variants are placed
-  on skeleton sites as instances with a canopy normal.
+  on skeleton sites as identified instances with a canopy normal. Meshes are
+  built only by consumers; `tissue_mesh` realizes compound leaflets explicitly.
 - **[sylva_texture](crates/sylva_texture/)**: species texture recipes on
   [dapple](https://github.com/forest-rs/dapple): a tileable bark set sized to
   the bark UVs, and a leaf set in a leaf shape's own UV frame, as OpenPBR
@@ -59,6 +69,14 @@ Examples live in `examples/`:
   (`twig-card/`), and builds its LOD chain (`lods/`); `tools/render_tree.py`
   renders the textured tree and `tools/render_lods.py` the chain side by
   side.
+
+For direct detailed geometry inspection without an LOD chain or textures:
+
+```sh
+cargo run -p species_gallery --bin detailed -- spruce /tmp/sylva-detailed
+```
+
+This writes an instanced GLB and reports template reuse and build costs.
 
 ## Minimum supported Rust version
 
