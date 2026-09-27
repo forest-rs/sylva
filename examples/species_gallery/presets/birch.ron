@@ -54,9 +54,19 @@ Species(
                 length: [(0.0, 0.55), (0.5, 0.45), (1.0, 0.25)],
                 length_jitter: 0.3,
                 shape: (gnarl: 0.2, gnarl_wavelength: 0.8, sag: 0.9),
+                // Leaf-bearing spur sites also clothe the outer laterals;
+                // foliage is not restricted to the hanging terminal twigs.
+                sites: Some((
+                    per_metre: 16.0,
+                    span: (0.3, 1.0),
+                    kind: 0,
+                    angle: 1.0,
+                    tip_cluster: 3,
+                    cluster_span: 0.08,
+                )),
             ),
-            // Fine pendulous twigs, long and few, hanging straight down in
-            // curtains of leaves.
+            // Fine pendulous twigs arch before hanging in curtains. A gradual
+            // sag preserves different departure angles through the crown.
             (
                 count: PerMetre(4.2),
                 span: (0.2, 1.0),
@@ -67,9 +77,9 @@ Species(
                 angle_jitter: 0.3,
                 length: [(0.0, 1.1), (1.0, 0.7)],
                 length_jitter: 0.3,
-                shape: (gnarl: 0.08, gnarl_wavelength: 0.3, sag: 7.0),
+                shape: (gnarl: 0.08, gnarl_wavelength: 0.3, sag: 2.5),
                 sites: Some((
-                    per_metre: 11.0,
+                    per_metre: 18.0,
                     span: (0.1, 1.0),
                     kind: 0,
                     angle: 0.9,

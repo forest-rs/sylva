@@ -221,7 +221,7 @@ pub const GOLDEN_ANGLE: f32 = 2.399_963_2;
 /// Foliage sites along a level's branches.
 ///
 /// Each site's frame points away from its branch at `angle` from the branch
-/// axis, rolling by the golden angle from site to site. Many trees crowd
+/// axis, rolling by `divergence` from site to site. Many trees crowd
 /// their leaves at the shoot ends (oak most visibly), which `tip_cluster`
 /// models as a whorl of extra sites over the last `cluster_span` of each
 /// branch.
@@ -239,6 +239,10 @@ pub struct Sites {
     /// Angle between the branch axis and each site's outward direction, in
     /// radians, in `(0, pi)`.
     pub angle: f32,
+    /// Roll between successive sites, in radians about the branch axis.
+    /// Defaults to [`GOLDEN_ANGLE`]; `pi` produces two alternating ranks.
+    /// The separately authored tip cluster retains its whorled arrangement.
+    pub divergence: f32,
     /// Extra sites crowded in a whorl at each branch tip.
     pub tip_cluster: u32,
     /// Fraction of the branch, ending at the tip, that the whorl occupies.
@@ -252,6 +256,7 @@ impl Default for Sites {
             span: [0.0, 1.0],
             kind: 0,
             angle: 0.8,
+            divergence: GOLDEN_ANGLE,
             tip_cluster: 0,
             cluster_span: 0.1,
         }
@@ -331,7 +336,7 @@ pub struct Shade {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct Radii {
-    /// Radius at every branch tip, metres.
+    /// Radius of an unsupported branch tip, metres.
     pub tip_radius: f32,
     /// Pipe-model exponent (`r_parent^e = sum r_child^e`).
     pub exponent: f32,

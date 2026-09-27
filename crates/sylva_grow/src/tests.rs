@@ -525,3 +525,39 @@ fn shade_bares_inner_branches_and_keeps_the_shell() {
             .any(|s| s.branch == far.branch)
     );
 }
+
+#[test]
+fn site_divergence_changes_ranks_without_changing_site_identity() {
+    let mut h = fixture();
+    h.levels.clear();
+    h.trunk = Trunk {
+        length: 2.0,
+        sites: Some(Sites {
+            per_metre: 8.0,
+            angle: 1.0,
+            ..Sites::default()
+        }),
+        ..Trunk::default()
+    };
+    let spiral = grow(&h, 1).expect("spiral");
+    h.trunk.sites.as_mut().unwrap().divergence = core::f32::consts::PI;
+    let ranked = grow(&h, 1).expect("two ranks");
+    assert_eq!(spiral.skeleton.branches(), ranked.skeleton.branches());
+    for (a, b) in spiral.skeleton.sites().iter().zip(ranked.skeleton.sites()) {
+        assert_eq!(
+            (a.branch, a.kind, a.ordinal, a.t, a.scale),
+            (b.branch, b.kind, b.ordinal, b.t, b.scale)
+        );
+        let radial = Vec3::new(b.frame.tangent.x, b.frame.tangent.y, 0.0).normalize();
+        let side = if b.ordinal % 2 == 0 {
+            Vec3::X
+        } else {
+            -Vec3::X
+        };
+        assert!(radial.dot(side) > 0.9999);
+    }
+    h.trunk.sites.as_mut().unwrap().divergence = f32::MAX;
+    grow(&h, 1).expect("finite divergence is reduced modulo a turn");
+    h.trunk.sites.as_mut().unwrap().divergence = f32::NAN;
+    assert!(grow(&h, 1).is_err());
+}
