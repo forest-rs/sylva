@@ -132,6 +132,10 @@ pub enum WeldSkipReason {
     ShortChild,
     /// Opening would overlap a previously selected opening on the parent.
     NeighborOpening,
+    /// Parent opening would remove tube carrying another child's attachment.
+    ParentAttachment,
+    /// Trimming the child would remove tube carrying one of its attachments.
+    ChildAttachment,
 }
 
 impl WeldSkipReason {
@@ -145,6 +149,8 @@ impl WeldSkipReason {
             Self::ParentTip => "parent_tip",
             Self::ShortChild => "short_child",
             Self::NeighborOpening => "neighbor_opening",
+            Self::ParentAttachment => "parent_attachment",
+            Self::ChildAttachment => "child_attachment",
         }
     }
 }
@@ -511,6 +517,17 @@ fn weld_sites(
             Some(WeldSkipReason::ShortChild)
         } else if !clear {
             Some(WeldSkipReason::NeighborOpening)
+        } else if skeleton.child_indices(parent).iter().any(|&neighbor| {
+            let other = &branches[neighbor];
+            let s = other.parent.expect("child attachment").t * length;
+            neighbor != child && s >= from && s <= to
+        }) {
+            Some(WeldSkipReason::ParentAttachment)
+        } else if skeleton.child_indices(child).iter().any(|&descendant| {
+            branches[descendant].parent.expect("child attachment").t * branch.length()
+                <= child_start
+        }) {
+            Some(WeldSkipReason::ChildAttachment)
         } else {
             None
         };

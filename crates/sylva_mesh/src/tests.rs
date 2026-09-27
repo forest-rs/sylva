@@ -709,3 +709,38 @@ fn coarse_parent_keeps_the_open_child_root_ring_buried() {
     }
     assert_eq!(roots, 4);
 }
+
+#[test]
+fn welding_does_not_remove_tube_under_other_attachments() {
+    for on_child in [false, true] {
+        let mut skeleton = fork(1.0);
+        let host_index = usize::from(on_child);
+        let host = &skeleton.branches()[host_index];
+        let t = if on_child { 0.02 } else { 0.51 };
+        let base = host.sample(t).position;
+        let parent = host.id;
+        let order = host.order + 1;
+        skeleton
+            .push_branch(Branch {
+                id: parent.child(42, 0),
+                order,
+                parent: Some(Attachment { parent, t }),
+                nodes: [base, base - Vec3::Y, base - 2.0 * Vec3::Y]
+                    .into_iter()
+                    .map(|p| {
+                        let mut node = Node::at(p);
+                        node.radius = 0.01;
+                        node
+                    })
+                    .collect(),
+            })
+            .expect("neighbor");
+        compute_frames(&mut skeleton, &FrameParams::default());
+        let bark = mesh_skeleton(&skeleton, &welded(Weld::default())).expect("mesh");
+        assert!(
+            !bark.welds.contains(&1),
+            "weld cut away an attachment on branch {host_index}"
+        );
+        assert!(bark.weld_skips.iter().any(|s| s.branch == 1));
+    }
+}
