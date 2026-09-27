@@ -163,6 +163,7 @@ fn sites_ok(sites: Sites) -> bool {
         && span(sites.span)
         && sites.angle > 0.0
         && sites.angle < core::f32::consts::PI
+        && sites.divergence.is_finite()
         && sites.tip_cluster <= 1024
         && (0.0..=1.0).contains(&sites.cluster_span)
 }

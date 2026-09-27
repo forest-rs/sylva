@@ -81,6 +81,8 @@ Species(
                     span: (0.1, 1.0),
                     kind: 0,
                     angle: 1.2,
+                    // Distichous foliage: alternating ranks along each twig.
+                    divergence: 3.1415927,
                     tip_cluster: 2,
                     cluster_span: 0.1,
                 )),

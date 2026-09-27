@@ -621,6 +621,7 @@ fn place_sites(
             span: [lo, hi],
             kind,
             angle,
+            divergence,
             tip_cluster,
             cluster_span,
         }) = wanted
@@ -650,7 +651,7 @@ fn place_sites(
                 ordinal,
                 kind,
                 t,
-                frame: outward(t, crate::GOLDEN_ANGLE * ordinal as f32),
+                frame: outward(t, (divergence % TAU) * ordinal as f32),
                 scale: 1.0,
             });
         }
