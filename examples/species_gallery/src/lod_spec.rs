@@ -89,6 +89,7 @@ impl LodSpec {
                     stations: Stations {
                         max_bend: l.stations.0,
                         max_spacing: l.stations.1,
+                        ..base.stations
                     },
                     min_branch_radius: l.min_branch_radius,
                     leaf_fraction: l.leaf_fraction,

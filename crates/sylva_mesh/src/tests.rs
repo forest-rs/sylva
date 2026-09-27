@@ -110,6 +110,7 @@ fn straight_stems_place_rings_by_spacing_and_bends_add_rings() {
         stations: Stations {
             max_bend: 0.1,
             max_spacing: 1.0,
+            ..Stations::default()
         },
         ..plain()
     };
@@ -204,7 +205,7 @@ fn embedded_children_flare_a_collar_blend_normals_and_record_provenance() {
     };
     let bark = mesh_skeleton(&skeleton, &params).expect("mesh");
     assert_eq!(bark.report.branches, 2);
-    assert_eq!(bark.report.collar_rings, u64::from(collar.rings));
+    assert_eq!(bark.report.collar_rings, u64::from(collar.rings) + 1);
     let tri = extract(&bark.mesh);
     let Some(AttributeBuffer::U32(branches)) = tri.attribute(BRANCH_LAYER) else {
         panic!("branch stream");
@@ -293,7 +294,7 @@ fn collars_stay_inside_a_parent_barely_thicker_than_the_child() {
             base_ring += 1;
             let r = (Vec3::from_array(*p) - Vec3::new(0.0, 0.0, 2.0)).length();
             assert!(r <= 0.97 * parent + 1e-5, "{r} vs parent {parent}");
-            assert!(r >= child - 1e-5, "the cap never thins the child: {r}");
+            assert!(r <= 0.25 * parent + 1e-5, "the open root stays buried: {r}");
         }
     }
     assert!(base_ring > 0, "child base ring found");
@@ -638,4 +639,73 @@ fn every_child_has_exactly_one_weld_outcome() {
             .weld_skips
             .is_empty()
     );
+}
+
+#[test]
+fn straight_tubes_preserve_abrupt_pipe_taper() {
+    let mut skeleton = Skeleton::new();
+    skeleton
+        .push_branch(Branch {
+            id: BranchId::root(0),
+            order: 0,
+            parent: None,
+            nodes: [(0.0, 0.3), (0.49, 0.3), (0.51, 0.05), (1.0, 0.05)]
+                .into_iter()
+                .map(|(z, radius)| {
+                    let mut node = Node::at(Vec3::Z * z);
+                    node.radius = radius;
+                    node
+                })
+                .collect(),
+        })
+        .expect("stem");
+    compute_frames(&mut skeleton, &FrameParams::default());
+    let bark = mesh_skeleton(&skeleton, &plain()).expect("mesh");
+    let tri = extract(&bark.mesh);
+    for node in &skeleton.branches()[0].nodes {
+        assert!(
+            tri.positions
+                .iter()
+                .any(|p| (p[2] - node.position.z).abs() < 1e-6
+                    && (Vec3::new(p[0], p[1], 0.0).length() - node.radius).abs() < 1e-5),
+            "missing taper ring at {}",
+            node.position.z
+        );
+    }
+}
+
+#[test]
+fn coarse_parent_keeps_the_open_child_root_ring_buried() {
+    let skeleton = fork(1.0);
+    let bark = mesh_skeleton(
+        &skeleton,
+        &MeshParams {
+            rings: RingResolution {
+                min_segments: 4,
+                max_segments: 4,
+                ..RingResolution::default()
+            },
+            ..plain()
+        },
+    )
+    .expect("mesh");
+    let child = &skeleton.branches()[1];
+    let center = child.nodes[0].position;
+    let parent_radius = skeleton.branches()[0].sample(0.5).radius;
+    let mut roots = 0;
+    for vertex in bark.mesh.vertices() {
+        if crate::branch_of(&bark.mesh, vertex) != Some(1) {
+            continue;
+        }
+        let offset =
+            Vec3::from_array(*bark.mesh.vertex_position(vertex).expect("position")) - center;
+        if offset.dot(child.nodes[0].frame.tangent).abs() < 1e-6 {
+            assert!(
+                offset.length() <= 0.251 * parent_radius,
+                "root escapes parent: {offset:?}"
+            );
+            roots += 1;
+        }
+    }
+    assert_eq!(roots, 4);
 }

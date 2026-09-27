@@ -327,16 +327,26 @@ impl Profile {
         let radius = station.radius;
         match *self {
             Self::Plain => radius,
-            Self::Collar { swell, cap, .. } => {
+            Self::Collar {
+                swell,
+                cap,
+                parent_radius,
+                ..
+            } => {
                 let (w, height) = self.collar_weight(station, theta);
                 let flared = radius + swell * w;
-                if height < 0.0 {
-                    // The cap only limits the flare inside the parent; it
-                    // never thins the tube itself.
+                let surface = if height < 0.0 {
                     flared.min(cap.max(radius))
                 } else {
                     flared
-                }
+                };
+                // The open root ring must remain buried even when a coarse
+                // parent polygon is narrower than its circumscribed radius.
+                // Recover the full profile within half a parent radius.
+                let t = (station.s / (0.5 * parent_radius)).clamp(0.0, 1.0);
+                let blend = t * t * (3.0 - 2.0 * t);
+                let buried = radius.min(0.25 * parent_radius);
+                buried + (surface - buried) * blend
             }
             Self::Flare { .. } => radius * self.scale(station.s, theta),
         }
@@ -859,6 +869,9 @@ fn stations(
         #[expect(clippy::cast_precision_loss, reason = "ring counts are small")]
         at.push(from + (to - from) * k as f32 / (extra + 1) as f32);
     }
+    if let Profile::Collar { parent_radius, .. } = *profile {
+        at.push((0.5 * parent_radius).min(0.5 * total));
+    }
     let added_before = at.len();
     // Curvature- and spacing-driven rings at skeleton nodes.
     let mut last_s = layout.start;
@@ -874,6 +887,33 @@ fn stations(
             at.push(s);
             last_s = s;
             last_tangent = node.frame.tangent;
+        }
+    }
+    // Curvature alone cannot see a pipe-radius step on a straight stem.
+    // Refine each already-selected span until its interpolated radii meet the
+    // error budget at every source node. Working from actual selected spans
+    // also accounts for collar/flare rings and a welded child's start.
+    at.sort_by(f32::total_cmp);
+    let mut spans: Vec<(f32, f32)> = at.windows(2).map(|w| (w[0], w[1])).collect();
+    while let Some((from, to)) = spans.pop() {
+        let a = station_at(branch, &lengths, from).radius;
+        let b = station_at(branch, &lengths, to).radius;
+        let worst = lengths
+            .iter()
+            .zip(&branch.nodes)
+            .filter(|(s, _)| **s > from && **s < to)
+            .map(|(&s, node)| {
+                let radius = node.radius.max(MIN_RADIUS);
+                let interpolated = a + (b - a) * ((s - from) / (to - from));
+                ((interpolated - radius).abs() / radius, s)
+            })
+            .max_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((error, s)) = worst
+            && error > params.stations.max_radius_error
+        {
+            at.push(s);
+            spans.push((from, s));
+            spans.push((s, to));
         }
     }
     match *profile {

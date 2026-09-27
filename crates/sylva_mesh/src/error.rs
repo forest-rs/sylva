@@ -71,6 +71,10 @@ impl MeshParams {
         )?;
         bad(positive(self.stations.max_bend), "stations.max_bend")?;
         bad(positive(self.stations.max_spacing), "stations.max_spacing")?;
+        bad(
+            positive(self.stations.max_radius_error),
+            "stations.max_radius_error",
+        )?;
         bad(positive(self.bark.tile_size), "bark.tile_size")?;
         let c = match self.junction {
             Junction::Embedded(c) => c,
