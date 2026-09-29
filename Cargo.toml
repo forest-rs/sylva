@@ -93,11 +93,11 @@ dapple_library = { git = "https://github.com/forest-rs/dapple", rev = "843c48b83
 dapple_material = { git = "https://github.com/forest-rs/dapple", rev = "843c48b839cb2365156a5123e7ca2792f17d82c0" }
 dapple_raster = { git = "https://github.com/forest-rs/dapple", rev = "843c48b839cb2365156a5123e7ca2792f17d82c0" }
 # Exedra is pinned to a reviewed `main` revision until it publishes releases.
-exedra_assembly = { default-features = false, features = ["std"], git = "https://github.com/forest-rs/exedra", rev = "f61e649a0b227bea787fd56029e2b751c678e4d5" }
-exedra_gltf = { git = "https://github.com/forest-rs/exedra", rev = "f61e649a0b227bea787fd56029e2b751c678e4d5" }
-exedra_math = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "f61e649a0b227bea787fd56029e2b751c678e4d5" }
-exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "f61e649a0b227bea787fd56029e2b751c678e4d5" }
-exedra_mesh_ops = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "f61e649a0b227bea787fd56029e2b751c678e4d5" }
+exedra_assembly = { default-features = false, features = ["std"], git = "https://github.com/forest-rs/exedra", rev = "3c8151dfdad274c532c618e13568cd14b4be8bcc" }
+exedra_gltf = { git = "https://github.com/forest-rs/exedra", rev = "3c8151dfdad274c532c618e13568cd14b4be8bcc" }
+exedra_math = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "3c8151dfdad274c532c618e13568cd14b4be8bcc" }
+exedra_mesh = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "3c8151dfdad274c532c618e13568cd14b4be8bcc" }
+exedra_mesh_ops = { default-features = false, features = ["libm"], git = "https://github.com/forest-rs/exedra", rev = "3c8151dfdad274c532c618e13568cd14b4be8bcc" }
 glam = { default-features = false, features = ["libm", "scalar-math"], version = "0.33.7" }
 libm = "0.2.16"
 # OpenPBR parameters are pinned to a reviewed `main` revision until published.

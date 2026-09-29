@@ -128,3 +128,20 @@ and blade size), browser version, counts and phase timings, plus oak interior
 and structure captures. Compare on the same machine, browser and server build;
 the first run per species includes a fresh page. These are generation and first
 frame measurements, not steady-state rendering benchmarks.
+
+For native CPU profiling, build the same workload with release optimizations
+and debug symbols:
+
+```sh
+CARGO_PROFILE_RELEASE_DEBUG=1 cargo build --release -p sylva_workbench --bin profile
+../../target/release/profile oak generate 30 > ../../.local/workbench/oak-native.jsonl
+```
+
+The executable prints its PID to stderr. While it runs, capture a macOS stack
+sample in another terminal with `sample <pid> 5 1 -file /tmp/oak.sample.txt`.
+Use `oak export 30` to isolate repeated export of one retained detailed asset;
+that mode omits material images, while `generate` runs the complete workbench
+path. Both use seed 1 and default parameters. An optional fourth argument saves
+the final GLB after timing, for byte comparisons. Compare timings without a
+sampler or competing builds running; native profiles locate CPU work but do
+not substitute for browser latency measurements.

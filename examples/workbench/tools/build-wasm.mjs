@@ -23,6 +23,7 @@ run("cargo", [
   "build",
   "-p",
   "sylva_workbench",
+  "--lib",
   "--target",
   "wasm32-unknown-unknown",
   "--release",
