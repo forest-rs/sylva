@@ -60,6 +60,8 @@ scene.add(grid);
 const loader = new GLTFLoader();
 let current = null,
   worker = null,
+  workerBusy = false,
+  workerSpecies = null,
   request = 0,
   mode = "canopy",
   dirty = false,
@@ -241,10 +243,15 @@ async function grow(recipe) {
   const id = ++request;
   const clicked = performance.now();
   let workerReadyMs = 0;
-  worker?.terminate();
-  worker = new Worker(new URL("./worker.js", import.meta.url), {
+  if (workerBusy || workerSpecies !== recipe.species) {
+    worker?.terminate();
+    worker = null;
+  }
+  worker ??= new Worker(new URL("./worker.js", import.meta.url), {
     type: "module",
   });
+  workerBusy = true;
+  workerSpecies = recipe.species;
   setBusy(true);
   status("Starting the Rust generator…");
   const job = worker;
@@ -267,6 +274,7 @@ async function grow(recipe) {
       return;
     }
     if (data.type !== "result") return;
+    workerBusy = false;
     status("Loading geometry and materials into the preview…");
     const start = performance.now();
     data.report.timings.worker_ready_ms = workerReadyMs;
@@ -352,8 +360,7 @@ async function grow(recipe) {
         `Ready in ${(data.report.timings.click_to_frame_ms / 1000).toFixed(1)} s. ${dirty ? "Unapplied parameter changes." : ""}`,
       );
       history.replaceState(null, "", recipeHash(recipe));
-      job.terminate();
-      if (worker === job) worker = null;
+      // Keep the bounded bake cache for the next recipe.
     } catch (error) {
       if (id === request) fail(error.message);
     }
@@ -363,6 +370,7 @@ async function grow(recipe) {
 function fail(message) {
   worker?.terminate();
   worker = null;
+  workerBusy = false;
   setBusy(false);
   status(
     `${message} ${current ? "Your previous specimen is still available." : "Adjust the settings and try again."}`,
@@ -519,6 +527,7 @@ $("cancel").onclick = () => {
   ++request;
   worker?.terminate();
   worker = null;
+  workerBusy = false;
   setBusy(false);
   status("Generation cancelled. The displayed specimen is unchanged.");
 };
@@ -582,6 +591,17 @@ $("diagnostics").onclick = () => {
     [
       "First render CPU submission",
       (t.first_render_cpu_ms / 1000).toFixed(2) + " s",
+    ],
+    ["Bark bake", current.report.material_cache.bark_hit ? "Reused" : "Built"],
+    ["Leaf bake", current.report.material_cache.leaf_hit ? "Reused" : "Built"],
+    [
+      "Encoded material cache",
+      (current.report.material_cache.encoded_bytes / 1048576).toFixed(2) +
+        " MB",
+    ],
+    [
+      "Worker WASM capacity",
+      (current.report.worker_memory_bytes / 1048576).toFixed(1) + " MB",
     ],
     ["Source branches", format(c.branches)],
     ["Leaf placements", format(c.placements)],

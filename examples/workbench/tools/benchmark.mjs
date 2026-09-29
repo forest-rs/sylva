@@ -52,6 +52,8 @@ try {
         iteration,
         counts: report.counts,
         timings: report.timings,
+        material_cache: report.material_cache,
+        worker_memory_bytes: report.worker_memory_bytes,
       });
       console.log(JSON.stringify(results.samples.at(-1)));
       if (species === "oak" && iteration === 2) {

@@ -90,19 +90,28 @@ test("generate, inspect, edit, export and recover without losing the specimen", 
     report.timings.click_to_submit_ms,
   );
   expect(report.timings.gpu_completion_wait_ms).toBeGreaterThanOrEqual(0);
-  for (const phase of [
-    "source_ms",
-    "realization_ms",
-    "textures_ms",
-    "export_ms",
-  ])
+  expect(report.material_cache.bark_hit).toBe(true);
+  expect(report.material_cache.leaf_hit).toBe(true);
+  expect(report.worker_memory_bytes).toBeGreaterThan(0);
+  for (const phase of ["source_ms", "realization_ms", "export_ms"])
     expect(report.timings[phase]).toBeGreaterThan(0);
+  expect(report.timings.textures_ms).toBeGreaterThanOrEqual(0);
   await page.locator("#close-report").click();
   await page.locator('[data-species="spruce"]').click();
   await page.locator("#grow").click();
   await page.locator("#cancel").click();
   await expect(page.locator("#status")).toContainText("cancelled");
   await expect(page.locator("#specimen-name")).toHaveText("Silver birch");
+  // Cancellation discards the worker/cache, but a new worker can rebuild the
+  // same displayed recipe and export exactly the same specimen.
+  await page.locator('[data-species="birch"]').click();
+  await page.locator("#grow").click();
+  await ready(page);
+  expect(await download(page, "#export")).toEqual(glb);
+  await page.locator("#diagnostics").click();
+  const restarted = JSON.parse(await download(page, "#download-report"));
+  expect(restarted.material_cache.bark_hit).toBe(false);
+  expect(restarted.material_cache.leaf_hit).toBe(false);
   expect(errors).toEqual([]);
 });
 

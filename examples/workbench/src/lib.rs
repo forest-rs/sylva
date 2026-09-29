@@ -98,7 +98,7 @@ struct LeafLook {
     roughness: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Images {
     color: Vec<u8>,
     normal: Vec<u8>,
@@ -134,7 +134,7 @@ impl Images {
     }
 }
 
-fn textures(recipe: &Recipe, species: &Species) -> Result<[Images; 2], Failure> {
+fn bark_texture(recipe: &Recipe) -> Result<Images, Failure> {
     use dapple_library::modules::{Beech, Birch, Spruce};
     // A single species bark tile, matching the gallery's representative bark.
     // Height-dependent bark staging remains a separate, richer realization.
@@ -149,6 +149,10 @@ fn textures(recipe: &Recipe, species: &Species) -> Result<[Images; 2], Failure> 
             bark(&toml::from_str::<dapple_graph::Recipe>(&source)?)?
         }
     };
+    Images::new(&bark_set.maps)
+}
+
+fn leaf_texture(recipe: &Recipe, species: &Species) -> Result<Images, Failure> {
     let look_source = match recipe.species.as_str() {
         "birch" => include_str!("../../species_gallery/presets/birch_leaf.ron"),
         "beech" => include_str!("../../species_gallery/presets/beech_leaf.ron"),
@@ -173,7 +177,66 @@ fn textures(recipe: &Recipe, species: &Species) -> Result<[Images; 2], Failure> 
     })?;
     // Tissue owns coverage. Do not bake silhouette alpha into these materials.
     leaves.maps.opacity = None;
-    Ok([Images::new(&bark_set.maps)?, Images::new(&leaves.maps)?])
+    Images::new(&leaves.maps)
+}
+
+/// Worker-owned generator with at most one bark and one leaf material bake.
+/// Sources, meshes and exports are not cached. Dropping the generator releases
+/// its encoded images; terminate its worker to release the WASM heap capacity.
+#[wasm_bindgen]
+#[derive(Debug, Default)]
+pub struct Generator {
+    bark: Option<(String, Images)>,
+    leaf: Option<((String, u32, u32), Images)>,
+}
+
+#[wasm_bindgen]
+impl Generator {
+    /// Starts an empty, explicitly owned material cache.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Builds a specimen, reusing only material bakes with matching inputs.
+    ///
+    /// # Errors
+    /// Returns an actionable message for invalid recipes or failed compilation.
+    pub fn generate(&mut self, recipe_json: &str) -> Result<Specimen, String> {
+        generate_inner(recipe_json, self).map_err(|error| error.to_string())
+    }
+}
+
+impl Generator {
+    fn materials(
+        &mut self,
+        recipe: &Recipe,
+        species: &Species,
+    ) -> Result<([&Images; 2], [bool; 2]), Failure> {
+        let bark_key = recipe.species.clone();
+        // Density affects placements, not a leaf's texture. Seed and blade size
+        // affect the bake; all remaining look/shape inputs are bundled presets.
+        let leaf_key = (
+            recipe.species.clone(),
+            recipe.seed,
+            recipe.leaf_size.to_bits(),
+        );
+        let bark_hit = self.bark.as_ref().is_some_and(|(key, _)| key == &bark_key);
+        let leaf_hit = self.leaf.as_ref().is_some_and(|(key, _)| key == &leaf_key);
+        if !bark_hit {
+            self.bark = Some((bark_key, bark_texture(recipe)?));
+        }
+        if !leaf_hit {
+            self.leaf = Some((leaf_key, leaf_texture(recipe, species)?));
+        }
+        Ok((
+            [
+                &self.bark.as_ref().expect("baked bark").1,
+                &self.leaf.as_ref().expect("baked leaf").1,
+            ],
+            [bark_hit, leaf_hit],
+        ))
+    }
 }
 
 /// One generated specimen. Call `take_glb` once and `report` before freeing it.
@@ -206,10 +269,10 @@ impl Specimen {
 /// Returns an actionable message for invalid recipes or failed compilation.
 #[wasm_bindgen]
 pub fn generate(recipe_json: &str) -> Result<Specimen, String> {
-    generate_inner(recipe_json).map_err(|error| error.to_string())
+    Generator::new().generate(recipe_json)
 }
 
-fn generate_inner(recipe_json: &str) -> Result<Specimen, Failure> {
+fn generate_inner(recipe_json: &str, generator: &mut Generator) -> Result<Specimen, Failure> {
     let recipe: Recipe = serde_json::from_str(recipe_json)?;
     let species = recipe.species()?;
     let started = monotonic_ms();
@@ -224,10 +287,10 @@ fn generate_inner(recipe_json: &str) -> Result<Specimen, Failure> {
     let detailed = build_detailed(&tree, &MeshParams::default())?;
     let realization_ms = monotonic_ms() - started;
     let started = monotonic_ms();
-    let images = textures(&recipe, &species)?;
+    let (images, cache_hits) = generator.materials(&recipe, &species)?;
     let textures_ms = monotonic_ms() - started;
     let started = monotonic_ms();
-    let glb = export_detailed_glb(&detailed, &images.each_ref().map(Images::borrowed))?;
+    let glb = export_detailed_glb(&detailed, &images.map(Images::borrowed))?;
     let export_ms = monotonic_ms() - started;
     let branches: Vec<_> = tree
         .skeleton()
@@ -244,6 +307,7 @@ fn generate_inner(recipe_json: &str) -> Result<Specimen, Failure> {
     let report = json!({
         "recipe": recipe,
         "timings": { "source_ms": source_ms, "realization_ms": realization_ms, "textures_ms": textures_ms, "export_ms": export_ms },
+        "material_cache": { "bark_hit": cache_hits[0], "leaf_hit": cache_hits[1], "encoded_bytes": images.iter().map(|i| i.color.len() + i.normal.len() + i.orm.len() + i.transmission.as_ref().map_or(0, Vec::len)).sum::<usize>() },
         "source_revision": option_env!("SYLVA_WORKBENCH_REVISION").unwrap_or("unknown"),
         "coordinates": { "up": "Y", "units": "metres" },
         "branches": branches,
@@ -295,6 +359,33 @@ mod tests {
             assert!(r.species().unwrap_err().to_string().contains("density"));
         }
         assert!(generate(r#"{"version":1}"#).is_err());
+    }
+
+    #[test]
+    fn material_cache_tracks_bake_inputs_and_matches_fresh_output() {
+        let mut generator = Generator::new();
+        let mut r = recipe();
+        for (edit, expected) in [
+            (0, [false, false]),
+            (1, [true, true]),
+            (2, [true, false]),
+            (3, [true, false]),
+            (4, [false, false]),
+        ] {
+            match edit {
+                1 => r.density = 0.5,
+                2 => r.seed = 2,
+                3 => r.leaf_size = 1.1,
+                4 => r.species = "beech".into(),
+                _ => {}
+            }
+            let species = r.species().unwrap();
+            let (cached, hits) = generator.materials(&r, &species).unwrap();
+            assert_eq!(hits, expected);
+            let mut fresh = Generator::new();
+            let (reference, _) = fresh.materials(&r, &species).unwrap();
+            assert_eq!(cached, reference);
+        }
     }
 
     #[test]

@@ -55,9 +55,14 @@ system fonts work when that service is unavailable. Tree data stays on-device.
   branch-index-to-ID mapping, camera and rendering context.
 
 Cancellation terminates the worker, keeping the last successful specimen.
-Failed generation or invalid imports also retain the displayed tree. Regeneration
-replaces the worker so its WASM heap can be released, and disposes the previous
-preview's geometries, materials, textures and image bitmaps.
+Failed generation or invalid imports also retain the displayed tree. Within a
+species, the worker retains one encoded bark bake and one leaf bake. Seed changes
+reuse bark; density changes reuse both; leaf size changes rebuild the leaf bake.
+The report exposes cache hits, encoded cache bytes and WASM memory capacity.
+Regeneration still frees source/mesh data and disposes the previous preview's
+geometry, materials, textures and image bitmaps. WASM capacity stays at its high
+water mark until cancellation, a species change or page reload replaces the
+worker. This is reserved capacity, not a measurement of live allocations.
 
 ## What this demonstration proves
 
