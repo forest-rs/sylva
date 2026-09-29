@@ -17,6 +17,7 @@ env:
     --exclude skeleton_dump
     --exclude species_gallery
     --exclude sylva_gltf
+    --exclude sylva_workbench
   # List of packages that don't support wasip1
   RUST_NO_WASIP1_PKGS: >-
     --exclude skeleton_dump
@@ -314,3 +315,39 @@ jobs:
 
       - name: check typos
         uses: crate-ci/typos@v1.45.1
+
+  workbench:
+    name: browser workbench
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/workbench
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_STABLE_VER }}
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: examples/workbench/package-lock.json
+      - name: install bridge CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.100 --locked
+      - run: npm ci
+      - run: npm test
+      - run: npm run format:check
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: exercise the production workbench
+        run: npm run test:browser
+        env:
+          PLAYWRIGHT_CHANNEL: chromium
+          WORKBENCH_PREVIEW: "1"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workbench-renders
+          path: examples/workbench/test-results/
