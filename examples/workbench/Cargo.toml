@@ -1,0 +1,30 @@
+[package]
+name = "sylva_workbench"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Browser workbench for generating and inspecting real Sylva specimens"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dapple_encode = { features = ["std"], workspace = true }
+dapple_graph = { features = ["serde"], workspace = true }
+dapple_library.workspace = true
+ron = "0.11.0"
+serde.workspace = true
+serde_json.workspace = true
+sylva_asset.workspace = true
+sylva_gltf.workspace = true
+sylva_mesh.workspace = true
+sylva_species = { features = ["serde"], workspace = true }
+sylva_texture.workspace = true
+toml = "1.1.6"
+wasm-bindgen = "=0.2.100"
+
+[lints]
+workspace = true

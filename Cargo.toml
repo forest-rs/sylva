@@ -14,6 +14,7 @@ members = [
     "crates/sylva_texture",
     "examples/skeleton_dump",
     "examples/species_gallery",
+    "examples/workbench",
 ]
 
 [workspace.package]
