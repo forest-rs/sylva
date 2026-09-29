@@ -83,6 +83,20 @@ test("generate, inspect, edit, export and recover without losing the specimen", 
   expect(report.counts.placements).toBe(39818);
   expect(report.counts.templates).toBe(4);
   expect(report.timings.generation_export_ms).toBeGreaterThan(0);
+  expect(report.timings.click_to_frame_ms).toBeGreaterThanOrEqual(
+    report.timings.generation_export_ms,
+  );
+  expect(report.timings.click_to_frame_ms).toBeGreaterThanOrEqual(
+    report.timings.click_to_submit_ms,
+  );
+  expect(report.timings.gpu_completion_wait_ms).toBeGreaterThanOrEqual(0);
+  for (const phase of [
+    "source_ms",
+    "realization_ms",
+    "textures_ms",
+    "export_ms",
+  ])
+    expect(report.timings[phase]).toBeGreaterThan(0);
   await page.locator("#close-report").click();
   await page.locator('[data-species="spruce"]').click();
   await page.locator("#grow").click();
@@ -90,6 +104,27 @@ test("generate, inspect, edit, export and recover without losing the specimen", 
   await expect(page.locator("#status")).toContainText("cancelled");
   await expect(page.locator("#specimen-name")).toHaveText("Silver birch");
   expect(errors).toEqual([]);
+});
+
+test("static views stop drawing and camera motion resumes drawing", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  await page.locator("#diagnostics").click();
+  const before = JSON.parse(await download(page, "#download-report"));
+  await page.waitForTimeout(500);
+  const idle = JSON.parse(await download(page, "#download-report"));
+  expect(idle.preview.submitted_frames).toBe(before.preview.submitted_frames);
+  await page.locator("#close-report").click();
+  await page.locator("#rotate").click();
+  await page.waitForTimeout(300);
+  await page.locator("#rotate").click();
+  await page.locator("#diagnostics").click();
+  const moved = JSON.parse(await download(page, "#download-report"));
+  expect(moved.preview.submitted_frames).toBeGreaterThan(
+    idle.preview.submitted_frames,
+  );
 });
 
 for (const species of ["oak", "beech", "spruce"]) {

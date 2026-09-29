@@ -17,6 +17,23 @@ use wasm_bindgen::prelude::*;
 
 type Failure = Box<dyn std::error::Error>;
 
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = performance, js_name = now)]
+    fn monotonic_ms() -> f64;
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn monotonic_ms() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+        * 1000.0
+}
+
 /// Portable authoring inputs for this workbench version, not a storage schema
 /// for `GeneratedTree`. Multipliers modify the bundled species preset.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -195,15 +212,23 @@ pub fn generate(recipe_json: &str) -> Result<Specimen, String> {
 fn generate_inner(recipe_json: &str) -> Result<Specimen, Failure> {
     let recipe: Recipe = serde_json::from_str(recipe_json)?;
     let species = recipe.species()?;
+    let started = monotonic_ms();
     let grown = species.grow(u64::from(recipe.seed))?;
     let tree = GeneratedTree::new(
         grown.skeleton,
         species.foliage.as_ref(),
         TreeMaterials::default(),
     )?;
+    let source_ms = monotonic_ms() - started;
+    let started = monotonic_ms();
     let detailed = build_detailed(&tree, &MeshParams::default())?;
+    let realization_ms = monotonic_ms() - started;
+    let started = monotonic_ms();
     let images = textures(&recipe, &species)?;
+    let textures_ms = monotonic_ms() - started;
+    let started = monotonic_ms();
     let glb = export_detailed_glb(&detailed, &images.each_ref().map(Images::borrowed))?;
+    let export_ms = monotonic_ms() - started;
     let branches: Vec<_> = tree
         .skeleton()
         .branches()
@@ -218,6 +243,7 @@ fn generate_inner(recipe_json: &str) -> Result<Specimen, Failure> {
         .collect();
     let report = json!({
         "recipe": recipe,
+        "timings": { "source_ms": source_ms, "realization_ms": realization_ms, "textures_ms": textures_ms, "export_ms": export_ms },
         "source_revision": option_env!("SYLVA_WORKBENCH_REVISION").unwrap_or("unknown"),
         "coordinates": { "up": "Y", "units": "metres" },
         "branches": branches,

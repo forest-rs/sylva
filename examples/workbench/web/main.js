@@ -65,8 +65,40 @@ let current = null,
   dirty = false,
   selected = null;
 let selectedSpecies = "birch";
-let lastFrame = performance.now(),
-  frameMs = 0;
+let needsRender = true,
+  submittedFrames = 0,
+  lastRenderCpuMs = 0;
+controls.addEventListener("change", () => {
+  needsRender = true;
+});
+function renderFrame() {
+  const started = performance.now();
+  renderer.render(scene, camera);
+  lastRenderCpuMs = performance.now() - started;
+  submittedFrames++;
+  needsRender = false;
+}
+async function waitForSubmittedFrame(id) {
+  const gl = renderer.getContext();
+  const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  if (!fence) throw new Error("Could not track preview GPU completion.");
+  gl.flush();
+  try {
+    while (id === request) {
+      // Poll without blocking the UI thread. This fence follows the submitted
+      // visible and shadow work, but does not measure display presentation.
+      await new Promise(requestAnimationFrame);
+      const result = gl.clientWaitSync(fence, 0, 0);
+      if (result === gl.ALREADY_SIGNALED || result === gl.CONDITION_SATISFIED)
+        return true;
+      if (result === gl.WAIT_FAILED || gl.isContextLost())
+        throw new Error("The preview graphics context stopped responding.");
+    }
+    return false;
+  } finally {
+    gl.deleteSync(fence);
+  }
+}
 const clay = new THREE.MeshStandardMaterial({
   color: 0xa69d83,
   roughness: 0.85,
@@ -146,6 +178,7 @@ function dispose(root) {
   });
 }
 function applyMode() {
+  needsRender = true;
   if (!current) return;
   current.root.traverse((object) => {
     if (!object.isMesh) return;
@@ -186,6 +219,7 @@ function fitBox(box) {
   controls.update();
 }
 function positionSun() {
+  needsRender = true;
   const size = current?.bounds.getSize(new THREE.Vector3()).length() ?? 30;
   const angle = THREE.MathUtils.degToRad(Number($("sun").value));
   sun.position.set(Math.cos(angle) * size, size * 1.3, Math.sin(angle) * size);
@@ -205,6 +239,8 @@ function positionSun() {
 }
 async function grow(recipe) {
   const id = ++request;
+  const clicked = performance.now();
+  let workerReadyMs = 0;
   worker?.terminate();
   worker = new Worker(new URL("./worker.js", import.meta.url), {
     type: "module",
@@ -222,6 +258,7 @@ async function grow(recipe) {
   job.onmessage = async ({ data }) => {
     if (id !== request) return;
     if (data.type === "progress") {
+      workerReadyMs = performance.now() - clicked;
       status(data.text);
       return;
     }
@@ -232,12 +269,16 @@ async function grow(recipe) {
     if (data.type !== "result") return;
     status("Loading geometry and materials into the preview…");
     const start = performance.now();
+    data.report.timings.worker_ready_ms = workerReadyMs;
+    data.report.timings.worker_result_ms = start - clicked;
     try {
       const gltf = await loader.parseAsync(data.glb, "");
       if (id !== request) {
         dispose(gltf.scene);
         return;
       }
+      data.report.timings.gltf_parse_ms = performance.now() - start;
+      const boundsStarted = performance.now();
       gltf.scene.traverse((object) => {
         if (!object.isMesh) return;
         object.castShadow = true;
@@ -249,6 +290,7 @@ async function grow(recipe) {
         }
       });
       const bounds = new THREE.Box3().setFromObject(gltf.scene);
+      data.report.timings.bounds_ms = performance.now() - boundsStarted;
       clearSelection();
       const previous = current;
       current = {
@@ -259,6 +301,9 @@ async function grow(recipe) {
       };
       current.report.timings.preview_load_ms = performance.now() - start;
       scene.add(current.root);
+      // Generation is committed once the new specimen replaces the old one.
+      // There is no cancellable worker operation during GPU completion.
+      $("cancel").hidden = true;
       if (previous) {
         scene.remove(previous.root);
         dispose(previous.root);
@@ -294,9 +339,17 @@ async function grow(recipe) {
       }
       positionSun();
       applyMode();
+      renderFrame();
+      data.report.timings.first_render_cpu_ms = lastRenderCpuMs;
+      const submitted = performance.now();
+      data.report.timings.click_to_submit_ms = submitted - clicked;
+      if (!(await waitForSubmittedFrame(id))) return;
+      data.report.timings.gpu_completion_wait_ms =
+        performance.now() - submitted;
+      data.report.timings.click_to_frame_ms = performance.now() - clicked;
       setBusy(false);
       status(
-        `Generated in ${(data.report.timings.generation_export_ms / 1000).toFixed(1)} s; loaded in ${(data.report.timings.preview_load_ms / 1000).toFixed(1)} s. ${dirty ? "Unapplied parameter changes." : ""}`,
+        `Ready in ${(data.report.timings.click_to_frame_ms / 1000).toFixed(1)} s. ${dirty ? "Unapplied parameter changes." : ""}`,
       );
       history.replaceState(null, "", recipeHash(recipe));
       job.terminate();
@@ -337,6 +390,7 @@ function downloadJSON(data, filename) {
   );
 }
 function clearSelection() {
+  needsRender = true;
   if (selected) {
     selected.mesh.removeFromParent();
     selected.mesh.geometry.dispose();
@@ -476,7 +530,7 @@ $("export").onclick = () =>
     name("glb"),
   );
 $("screenshot").onclick = () => {
-  renderer.render(scene, camera);
+  renderFrame();
   renderer.domElement.toBlob((blob) => {
     if (blob) download(blob, name("png"));
   });
@@ -512,6 +566,23 @@ $("diagnostics").onclick = () => {
   const c = current.report.counts,
     t = current.report.timings;
   const rows = [
+    [
+      "Generate to GPU-ready frame",
+      (t.click_to_frame_ms / 1000).toFixed(2) + " s",
+    ],
+    [
+      "First frame GPU completion wait",
+      (t.gpu_completion_wait_ms / 1000).toFixed(2) + " s",
+    ],
+    ["Worker startup", (t.worker_ready_ms / 1000).toFixed(2) + " s"],
+    ["Growth + source", (t.source_ms / 1000).toFixed(2) + " s"],
+    ["Detailed meshing", (t.realization_ms / 1000).toFixed(2) + " s"],
+    ["Material baking", (t.textures_ms / 1000).toFixed(2) + " s"],
+    ["GLB export", (t.export_ms / 1000).toFixed(2) + " s"],
+    [
+      "First render CPU submission",
+      (t.first_render_cpu_ms / 1000).toFixed(2) + " s",
+    ],
     ["Source branches", format(c.branches)],
     ["Leaf placements", format(c.placements)],
     ["Stored templates", c.templates],
@@ -522,7 +593,8 @@ $("diagnostics").onclick = () => {
       (t.generation_export_ms / 1000).toFixed(2) + " s",
     ],
     ["Preview load", (t.preview_load_ms / 1000).toFixed(2) + " s"],
-    ["Frame interval (CPU wall clock)", frameMs.toFixed(1) + " ms"],
+    ["Last render CPU submission", lastRenderCpuMs.toFixed(1) + " ms"],
+    ["Submitted frames (session)", submittedFrames],
     ["Renderer draw calls", renderer.info.render.calls],
     ["Renderer triangles", format(renderer.info.render.triangles)],
     ["GLB size", (c.glb_bytes / 1048576).toFixed(2) + " MB"],
@@ -549,7 +621,8 @@ $("download-report").onclick = () =>
         mode,
         draw_calls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
-        frame_interval_ms: frameMs,
+        render_cpu_ms: lastRenderCpuMs,
+        submitted_frames: submittedFrames,
         camera: {
           position: camera.position.toArray(),
           target: controls.target.toArray(),
@@ -559,17 +632,15 @@ $("download-report").onclick = () =>
     name("report.json"),
   );
 new ResizeObserver(() => {
+  needsRender = true;
   const { width, height } = $("viewport").getBoundingClientRect();
   renderer.setSize(width, height);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
 }).observe($("viewport"));
 renderer.setAnimationLoop(() => {
-  const now = performance.now();
-  frameMs = frameMs * 0.95 + (now - lastFrame) * 0.05;
-  lastFrame = now;
   controls.update();
-  renderer.render(scene, camera);
+  if (needsRender) renderFrame();
 });
 camera.position.set(25, 14, 30);
 controls.target.set(0, 9, 0);

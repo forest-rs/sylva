@@ -50,7 +50,7 @@ system fonts work when that service is unavailable. Tree data stays on-device.
   `EXT_mesh_gpu_instancing`, Dapple textures, metres, Y up. **Capture PNG**
   captures the canvas at its current camera and preview mode.
 - **Build report** separates stored geometry from expanded instance geometry,
-  generation/export time from preview loading, and reports the most recent
+  growth, meshing, material baking and export from preview loading, and reports the most recent
   frame's renderer counters. Download its JSON for recipe, counts, bounds,
   branch-index-to-ID mapping, camera and rendering context.
 
@@ -71,7 +71,8 @@ Dapple bakes 256² representative bark tiles and 128² leaf maps. Leaf silhouett
 comes from tissue geometry; its material has no alpha test. The GLB retains
 `KHR_materials_diffuse_transmission`; the pinned Three.js loader does not
 implement it, so the preview currently uses metallic-roughness shading without
-that response. Bark uses one representative tile, not height-dependent stages.
+that response. Bark uses one representative tile across trunk and branches;
+young branches do not yet have a distinct bark appearance.
 
 This is a static detailed-geometry viewer. It does not implement wind, automatic
 LOD, motion bounds, layerstack integration, or hierarchical visibility. A draw
@@ -81,9 +82,13 @@ phones. Lower foliage density changes the authored specimen; it is not LOD.
 
 The first bridge uses GLB for preview as well as export. Every growth edit fully
 regenerates and serializes the tree. Timings expose that baseline rather than
-claiming incremental generation or uploads. The frame interval is CPU wall time
-between animation callbacks, not a GPU timing or benchmark. Shadows are cached
-until the specimen, mode or sun changes.
+claiming incremental generation or uploads. Generate-to-first-frame measures wall
+time through GPU completion, checked with a fence after the visible and shadow
+passes. It does not measure display scanout. The GPU completion wait includes
+queueing and polling latency; it is not an isolated GPU execution time. Render
+CPU submission time is reported separately. Static views stop submitting frames; camera motion, lighting, selection,
+mode, resize and specimen changes redraw. Shadows are cached until the specimen,
+mode or sun changes.
 
 Recipes are interpreted against this workbench's bundled presets; version 1
 must change if their interpretation changes. A share link needs the same build
@@ -111,3 +116,15 @@ They exercise all four species, branch picking, bounded inputs, cancellation,
 invalid-import recovery, a byte-identical save/reopen/export round trip, reports,
 and the narrow-screen layout. Screenshots are saved under ignored `test-results/`.
 Use `WORKBENCH_PREVIEW=1 npm run test:browser` to test the production bundle.
+
+With the development server running, repeat the generation workload with:
+
+```sh
+node tools/benchmark.mjs ../../.local/workbench/latency.json
+```
+
+This records three runs each of birch, oak and spruce (seed 1, default density
+and blade size), browser version, counts and phase timings, plus oak interior
+and structure captures. Compare on the same machine, browser and server build;
+the first run per species includes a fresh page. These are generation and first
+frame measurements, not steady-state rendering benchmarks.

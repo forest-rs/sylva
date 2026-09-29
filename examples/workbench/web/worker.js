@@ -15,7 +15,7 @@ self.onmessage = async ({ data }) => {
     try {
       const report = JSON.parse(specimen.report());
       const glb = specimen.take_glb();
-      report.timings = { generation_export_ms: performance.now() - started };
+      report.timings.generation_export_ms = performance.now() - started;
       self.postMessage({ type: "result", report, glb: glb.buffer }, [
         glb.buffer,
       ]);
