@@ -18,3 +18,10 @@ target/
 
 # Review renders and other local outputs that survive `cargo clean`
 .local/
+
+# Browser workbench build products
+examples/workbench/node_modules/
+examples/workbench/dist/
+examples/workbench/pkg/
+examples/workbench/test-results/
+examples/workbench/playwright-report/

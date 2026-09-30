@@ -123,3 +123,21 @@ Licensed under either of
 - MIT license ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.
+
+### Browser workbench
+
+The [Sylva workbench](examples/workbench/README.md) grows the four species on
+your device with Rust/WASM and displays their detailed geometry through
+Three.js. Inspect branch identities, adjust foliage, save or reopen recipes,
+share a specimen link, and export the same instanced GLB shown in the preview.
+The build report exposes geometry counts and generation/loading costs.
+
+```sh
+cd examples/workbench
+npm ci
+npm run wasm
+npm run dev
+```
+
+See the workbench README for the required WASM target and CLI, static builds,
+browser checks, and the current rendering limitations.

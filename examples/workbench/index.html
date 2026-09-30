@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#163b31" />
+    <meta
+      name="description"
+      content="Grow, inspect and export procedural trees. A Sylva workbench powered by Rust and Three.js."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23234d3d%27/%3E%3Cpath d=%27M16 27V5M16 15C7 15 7 8 7 6c7 0 9 4 9 9Zm0 7c9 0 9-7 9-9-7 0-9 4-9 9Z%27 fill=%27none%27 stroke=%27%23e8ecd8%27 stroke-width=%271.5%27/%3E%3C/svg%3E"
+    />
+    <title>Sylva · Specimen workbench</title>
+    <link rel="stylesheet" href="/web/style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="#" aria-label="Sylva workbench"
+        ><svg
+          width="27"
+          height="32"
+          viewBox="0 0 27 32"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M14 30V4M14 14C4 14 3 8 3 4c8 0 11 4 11 10ZM14 23c10 0 11-6 11-10-8 0-11 4-11 10Z"
+            stroke="currentColor"
+            stroke-width="1.7"
+          /></svg
+        ><strong>sylva</strong><span>SPECIMEN WORKBENCH</span></a
+      >
+      <div class="header-right">
+        <a
+          href="https://github.com/forest-rs/sylva"
+          target="_blank"
+          rel="noreferrer"
+          >Source ↗</a
+        >
+      </div>
+    </header>
+    <main>
+      <aside class="editor">
+        <h1>Tree parameters</h1>
+        <form id="recipe-form">
+          <fieldset>
+            <legend>Choose a species</legend>
+            <div class="species-grid">
+              <button
+                type="button"
+                class="species active"
+                data-species="birch"
+                aria-pressed="true"
+              >
+                Birch<small>Betula pendula</small>
+              </button>
+              <button
+                type="button"
+                class="species"
+                data-species="oak"
+                aria-pressed="false"
+              >
+                Oak<small>Quercus robur</small>
+              </button>
+              <button
+                type="button"
+                class="species"
+                data-species="beech"
+                aria-pressed="false"
+              >
+                Beech<small>Fagus sylvatica</small>
+              </button>
+              <button
+                type="button"
+                class="species"
+                data-species="spruce"
+                aria-pressed="false"
+              >
+                Spruce<small>Picea abies</small>
+              </button>
+            </div>
+          </fieldset>
+          <label class="field-label" for="seed"
+            >Individual seed <span>Same seed, same tree</span></label
+          >
+          <div class="seed-row">
+            <input
+              id="seed"
+              type="number"
+              min="0"
+              max="4294967295"
+              step="1"
+              value="1"
+              required
+            /><button
+              id="shuffle"
+              type="button"
+              title="Choose another seed"
+              aria-label="Choose another seed"
+            >
+              ↻
+            </button>
+          </div>
+          <label class="field-label" for="density"
+            >Foliage density <output id="density-value">100%</output></label
+          ><input
+            id="density"
+            type="range"
+            min="35"
+            max="120"
+            value="100"
+            step="5"
+          />
+          <div class="range-labels"><span>35%</span><span>120%</span></div>
+          <label class="field-label" for="leaf-size"
+            >Leaf size <output id="leaf-size-value">100%</output></label
+          ><input
+            id="leaf-size"
+            type="range"
+            min="70"
+            max="140"
+            value="100"
+            step="5"
+          />
+          <div class="range-labels"><span>70%</span><span>140%</span></div>
+          <button class="primary" id="grow" type="submit">
+            Generate tree <span>↗</span></button
+          ><button id="cancel" type="button" hidden>Cancel generation</button>
+        </form>
+        <p class="status" id="status" role="status" aria-live="polite">
+          Initializing…
+        </p>
+        <div class="recipe-actions">
+          <button id="save-recipe" disabled>Save recipe</button
+          ><button id="load-recipe">Open recipe</button
+          ><input
+            id="recipe-file"
+            type="file"
+            accept=".json,application/json"
+            hidden
+          />
+        </div>
+      </aside>
+      <section class="studio" aria-label="Interactive tree preview">
+        <div id="viewport"></div>
+        <div class="specimen-label">
+          <div class="eyebrow">PREVIEW</div>
+          <h2 id="specimen-name">Silver birch</h2>
+          <p id="specimen-latin">Betula pendula</p>
+          <span id="specimen-seed">Seed 000001 · detailed geometry</span>
+        </div>
+        <div class="view-tools" role="group" aria-label="Preview mode">
+          <button data-mode="canopy" class="active" aria-pressed="true">
+            Canopy</button
+          ><button data-mode="structure" aria-pressed="false">Structure</button
+          ><button data-mode="wire" aria-pressed="false">Wireframe</button>
+        </div>
+        <div class="loading" id="loading">
+          <div class="growth-mark"></div>
+          <strong id="loading-title">Generating tree</strong>
+        </div>
+        <div class="scene-tools">
+          <button id="fit" title="Frame the complete tree">↗ Fit tree</button
+          ><button id="rotate" aria-pressed="false">↻ Turntable</button
+          ><label
+            >Sun
+            <input
+              id="sun"
+              type="range"
+              min="-180"
+              max="180"
+              value="-45"
+              aria-label="Sun direction"
+          /></label>
+        </div>
+        <div class="selection" id="selection" hidden>
+          <div class="eyebrow">
+            BRANCH INSPECTOR
+            <button id="clear-selection" aria-label="Clear branch selection">
+              ×
+            </button>
+          </div>
+          <strong id="branch-title"></strong><code id="branch-id"></code>
+          <p id="branch-parent"></p>
+          <button id="focus-branch">Frame branch</button>
+        </div>
+        <div class="canvas-hint" id="hint">
+          Drag to orbit · scroll to explore · right-drag to pan
+        </div>
+        <div class="metrics" aria-label="Specimen statistics">
+          <div><span>HEIGHT</span><strong id="height">—</strong></div>
+          <div><span>BRANCHES</span><strong id="branches">—</strong></div>
+          <div>
+            <span>LEAF PLACEMENTS</span><strong id="placements">—</strong>
+          </div>
+          <div>
+            <span>SHARED TEMPLATES</span><strong id="templates">—</strong>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div>
+        <span class="eyebrow">EXPORT</span
+        ><span id="export-info">No generated tree.</span>
+      </div>
+      <div class="export-actions">
+        <button id="diagnostics" disabled>Build report</button
+        ><button id="share" disabled>Copy link</button
+        ><button id="screenshot" disabled>Capture PNG</button
+        ><button class="export" id="export" disabled>Export GLB ↗</button>
+      </div>
+    </footer>
+    <dialog id="report-dialog">
+      <button class="close" id="close-report" aria-label="Close report">
+        ×
+      </button>
+      <div class="eyebrow">SPECIMEN / BUILD REPORT</div>
+      <h2>Build report</h2>
+      <dl id="report-values"></dl>
+      <p id="material-note">
+        Preview uses metallic-roughness shading. Authored diffuse transmission
+        is retained in the GLB but is not evaluated by this viewer.
+      </p>
+      <p>
+        Static geometry. No wind, automatic LOD, or hierarchical visibility.
+        Changes rebuild the specimen in a worker; camera and light changes do
+        not.
+      </p>
+      <button id="download-report">Download report JSON</button>
+    </dialog>
+    <script type="module" src="/web/bootstrap.js"></script>
+  </body>
+</html>
