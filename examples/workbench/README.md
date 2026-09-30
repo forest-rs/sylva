@@ -122,15 +122,22 @@ invalid-import recovery, a byte-identical save/reopen/export round trip, reports
 and the narrow-screen layout. Screenshots are saved under ignored `test-results/`.
 Use `WORKBENCH_PREVIEW=1 npm run test:browser` to test the production bundle.
 
-With the development server running, repeat the generation workload with:
+After `npm run build`, repeat the generation workload and capture review images with:
 
 ```sh
-node tools/benchmark.mjs ../../.local/workbench/latency.json
+node tools/render.mjs ../../.local/workbench/latency.json
+node tools/render.mjs ../../.local/workbench/oak-review.json oak
+node tools/render.mjs ../../.local/workbench/beech-seed3.json beech --seed=3
 ```
 
-This records three runs each of birch, oak and spruce (seed 1, default density
-and blade size), browser version, counts and phase timings, plus oak interior
-and structure captures. Compare on the same machine, browser and server build;
+This records three runs each of birch, oak and spruce by default. Supply species
+names after the output path for targeted reviews, and `--seed=N` for another seed.
+The default density and blade size are used. Reports retain the recipe,
+source revision, browser version, camera, counts and phase timings alongside whole
+crown, whole structure and interior captures. Omitting the output path creates a
+timestamped review directory. The script starts and closes its own production
+preview server; set `WORKBENCH_URL` to review an already running server. Compare
+on the same machine, browser and server build;
 the first run per species includes a fresh page. These are generation and first
 frame measurements, not steady-state rendering benchmarks.
 
